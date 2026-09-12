@@ -76,14 +76,19 @@ describe('enclosingBlock', () => {
 
 const REAL = 'G:/Anthea-Solve/index.html';
 describe.skipIf(!existsSync(REAL))('against the real site', () => {
-  const i = indexTemplate(parseBundle(readFileSync(REAL, 'utf8')).template);
+  // Read inside the tests, not in the describe body: `skipIf` skips the tests
+  // but still evaluates the body, so an eager read here fails the build on any
+  // machine without the site — which is every machine but this one.
+  const real = () => indexTemplate(parseBundle(readFileSync(REAL, 'utf8')).template);
 
   it('gets from a real list item to its real list', () => {
+    const i = real();
     const li = i.elements.find((e) => e.tag === 'li')!;
     expect(enclosingBlock(i, li.id)?.tag).toMatch(/ul|ol/);
   });
 
   it('produces a trail short enough to read', () => {
+    const i = real();
     const li = i.elements.find((e) => e.tag === 'li')!;
     // A trail nobody can scan is a trail nobody uses.
     expect(ancestryOf(i, li.id).length).toBeLessThan(14);
