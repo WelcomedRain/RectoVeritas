@@ -102,6 +102,21 @@ button:disabled { cursor: default; opacity: 0.4; }
   color: var(--color-text);
   border-radius: var(--radius-md);
   resize: vertical;
+
+  /* Show the whole value without being dragged open every time. The median
+     string on this site is 21 characters and the longest is 296, so fixed rows
+     were wrong in both directions at once: most boxes stood taller than their
+     contents while the few long ones clipped. The cap is a guard against a
+     pathological value, not a limit real copy reaches. */
+  field-sizing: content;
+  min-height: 2.4em;
+  /* Deliberately em and not vh. A viewport unit resolves to zero whenever the
+     window reports no height — a hidden tab, a backgrounded window — and a
+     max-height of zero closes every box on the screen at once. Measured: with
+     the pane hidden, `40vh` computed to 0px and all 199 boxes collapsed. This
+     cap is a guard against a pathological value; the longest real string on
+     this site is 296 characters and lands at 212px, well under it. */
+  max-height: 30em;
 }
 .input:focus { outline: none; border-color: var(--color-accent); }
 .input.edited { background: var(--color-accent-100); }

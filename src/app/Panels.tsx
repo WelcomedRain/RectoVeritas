@@ -11,6 +11,24 @@ import type { StyleDecl, ThemeToken } from '../core/css';
 import { StyleSections, ValueField, type MatchedRule } from './StylePanel';
 import { ElementCodeEditor } from './CodeEditor';
 
+/**
+ * Grow a value box to its contents.
+ *
+ * Chromium sizes these natively with `field-sizing: content`, which also
+ * handles typing and panel resizing with no work from us. Where that is not
+ * supported the same thing is done by hand, so nobody is left dragging a
+ * corner to read a sentence.
+ */
+const NATIVE_FIELD_SIZING =
+  typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+  && CSS.supports('field-sizing', 'content');
+
+export function autosize(el: HTMLTextAreaElement | null) {
+  if (!el || NATIVE_FIELD_SIZING) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 /* ------------------------------- Words ------------------------------- */
 
 export function WordsPanel({
@@ -40,7 +58,9 @@ export function WordsPanel({
       </div>
       <textarea
         className={`input ${changes.has(s.id) ? 'edited' : ''}`}
-        rows={2}
+        rows={1}
+        ref={autosize}
+        onInput={(e) => autosize(e.currentTarget)}
         value={valueOf(s)}
         disabled={s.computed}
         title={s.computed ? 'The page fills this in when it loads, so there is nothing here to change.' : undefined}
@@ -371,7 +391,9 @@ export function SelectionPanel({
 
       <textarea
         className={`input ${change ? 'edited' : ''}`}
-        rows={4}
+        rows={1}
+        ref={autosize}
+        onInput={(e) => autosize(e.currentTarget)}
         value={valueOf(entry)}
         disabled={entry.computed}
         onChange={(e) => onEdit(entry.id, e.target.value)}
