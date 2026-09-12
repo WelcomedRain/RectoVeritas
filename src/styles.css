@@ -667,3 +667,35 @@ button:disabled { cursor: default; opacity: 0.4; }
 }
 .not-drawn b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
 .not-drawn span { color: var(--color-neutral-800); }
+
+/* ---- ancestry trail ---- */
+
+/* Where the selection sits, and the way out of it. Selection lands on the
+   smallest thing under the pointer, which is right for a word and useless for
+   structure — a list item cannot add or remove its own siblings. */
+.trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider);
+  line-height: 1.6;
+}
+.trail .sep { font-style: normal; color: var(--color-neutral-500); padding: 0 1px; }
+
+.crumb {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-neutral-800);
+  cursor: pointer;
+}
+.crumb:hover:not(:disabled) { border-color: var(--color-divider); background: var(--color-neutral-100); }
+/* The one you are on: stated, not clickable, since it is already selected. */
+.crumb.on { color: var(--color-accent-800); background: var(--color-accent-100); border-color: var(--color-accent-200); cursor: default; }
+/* A wrapper with no identity of its own. Still shown, because leaving it out
+   would make the trail lie about the shape of the page. */
+.crumb.dim:not(.on) { color: var(--color-neutral-600); }

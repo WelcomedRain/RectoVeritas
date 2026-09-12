@@ -5,6 +5,7 @@ import { imageSizeFromBase64, formatSize } from '../core/imageMeta';
 import type { FitReport } from '../core/fit';
 import { useRef, useState } from 'react';
 import type { ElementNode, StringEntry, TemplateIndex } from '../core/htmlIndex';
+import type { Crumb } from '../core/ancestry';
 import type { PendingChange } from '../core/publish';
 import type { EditTarget } from '../core/targets';
 import type { StyleDecl, ThemeToken } from '../core/css';
@@ -296,13 +297,13 @@ export function PicturesPanel({
 /* ----------------------------- Selection ----------------------------- */
 
 export function SelectionPanel({
-  entry, index, change, valueOf, onEdit, onUndo, onShowCode,
+  entry, change, valueOf, onEdit, onUndo, onShowCode,
   element, decls, hoverDecls, rules, targetsById, tokens, changes, hoverHeld, onHoldHover,
   onScopeToElement,
   elementSource, elementPending, onEditHtml, onRevertHtml,
+  ancestry, block, onSelectElement,
 }: {
   entry: StringEntry | null;
-  index: TemplateIndex;
   change: PendingChange | undefined;
   valueOf: ((s: StringEntry) => string) & ((t: EditTarget) => string);
   onEdit: (id: string, v: string) => void;
@@ -322,7 +323,42 @@ export function SelectionPanel({
   elementPending: string | null;
   onEditHtml: (html: string) => void;
   onRevertHtml: () => void;
+  ancestry: Crumb[];
+  block: Crumb | null;
+  onSelectElement: (elementId: string) => void;
 }) {
+  /**
+   * Where this sits, and a way out of it.
+   *
+   * Selection lands on the smallest thing under the pointer. That is right for
+   * changing a word and useless for structure: a list item cannot add or remove
+   * its own siblings, so editing a list means editing the <ul> — and there was
+   * no way to reach one. The same step puts a logo built from an img and two
+   * spans back together as the single link it is.
+   */
+  const trail = ancestry.length > 1 ? (
+    <div className="trail">
+      {ancestry.map((c, i) => (
+        <span key={c.id}>
+          {i > 0 && <i className="sep">›</i>}
+          <button
+            className={`crumb ${c.current ? 'on' : ''} ${c.notable ? '' : 'dim'}`}
+            disabled={c.current}
+            onClick={() => onSelectElement(c.id)}
+            title={c.current ? 'What you have selected' : `Select this ${c.tag}`}
+          >
+            {c.label}
+          </button>
+        </span>
+      ))}
+    </div>
+  ) : null;
+
+  const stepOut = block ? (
+    <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => onSelectElement(block.id)}>
+      Select the whole {block.label}
+    </button>
+  ) : null;
   const codeEditor = element && elementSource != null ? (
     <div style={{ borderTop: '2px solid var(--color-divider)', paddingTop: 12 }} className="stack">
       <ElementCodeEditor
@@ -360,7 +396,9 @@ export function SelectionPanel({
       <div className="panel">
         {element ? (
           <>
+            {trail}
             <div className="label">{element.tag} · no words of its own</div>
+            {stepOut}
             {styling}
             <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={onShowCode}>
               Show me the code
@@ -373,13 +411,12 @@ export function SelectionPanel({
       </div>
     );
   }
-  const el = index.byId.get(entry.elementId);
   return (
     <div className="panel">
+      {trail}
       <table className="proptable">
         <tbody>
           <tr><td className="k">Kind</td><td>{entry.kind === 'attr' ? 'Share / SEO tag' : entry.label}</td></tr>
-          <tr><td className="k">Where</td><td className="mono" style={{ fontSize: 11, wordBreak: 'break-all' }}>{el?.path ?? '—'}</td></tr>
           <tr><td className="k">File</td><td className="mono" style={{ fontSize: 11 }}>{change?.file ?? 'index.html'}</td></tr>
           <tr><td className="k">Found at</td><td className="mono" style={{ fontSize: 11 }}>byte {entry.start.toLocaleString()}</td></tr>
           <tr>
@@ -408,6 +445,7 @@ export function SelectionPanel({
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn" onClick={onShowCode}>Show me the code</button>
+        {stepOut}
         {change && <button className="btn" onClick={() => onUndo(entry.id)}>Undo</button>}
       </div>
 

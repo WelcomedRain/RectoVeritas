@@ -15,6 +15,7 @@ import type { LiveEdit } from './preview';
 import { noteFor, summarise, type PreviewAck } from './previewable';
 import { statusLine } from './status';
 import { destinationsFor, type DestinationId } from '../core/destination';
+import { ancestryOf, enclosingBlock } from '../core/ancestry';
 import { reportFit, makeItCover, makeItFitByHeight, type FitMeasurement, type SweepPoint } from '../core/fit';
 
 type Mode = 'page' | 'split' | 'code';
@@ -746,7 +747,6 @@ export function App() {
           {tab === 'selection' && idx && (
             <SelectionPanel
               entry={selectedEntry}
-              index={idx}
               change={selectedEntry ? state.changes.get(selectedEntry.id) : undefined}
               valueOf={ed.valueOf}
               onEdit={editWithHover}
@@ -762,6 +762,9 @@ export function App() {
               changes={state.changes}
               hoverHeld={hoverHeld}
               onHoldHover={setHoverHeld}
+              ancestry={idx ? ancestryOf(idx, selectedElement?.id ?? null) : []}
+              block={idx ? enclosingBlock(idx, selectedElement?.id ?? null) : null}
+              onSelectElement={(id) => ed.select(null, id)}
               elementSource={elementSource}
               elementPending={elementPending}
               onEditHtml={(html) => selectedElement && ed.editElementHtml(selectedElement.id, html)}
