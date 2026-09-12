@@ -12,6 +12,8 @@ import { applyEdits, encodeAttr, type Edit } from './htmlIndex';
 import { encodeFor, type EditTarget } from './targets';
 import { GitHub, type RepoRef } from './github';
 import { withNoindex, type Destination } from './destination';
+import { syncStaticHead, headMismatches } from './staticHead';
+import { indexTemplate } from './htmlIndex';
 
 export type StepId = 'written' | 'rebuilt' | 'spliced' | 'verified' | 'pushed';
 export type StepState = 'waiting' | 'active' | 'done' | 'failed';
@@ -240,18 +242,49 @@ export async function publish(
     ? `${Math.round(fileText.length / 1024)} KB · marked noindex`
     : `${Math.round(fileText.length / 1024)} KB`);
 
-  // 3 — splice. The block already sits in <head> in the current export, so this
-  // step is a no-op unless an export moved it. Re-splicing is left to the health
-  // fix, which owns the marker block; here we only report what we found.
+  // 3 — splice. The literal block in <head> is the copy scrapers read, and it
+  // is not the copy the editor edits. Bring it up to date from the template, or
+  // a Share / SEO change reaches the page and never reaches Google.
   set('spliced', 'active', '');
-  const pre = verifyHeadTags(fileText);
-  set('spliced', 'done', pre.ok ? 'already in place' : 'needs repair');
+  const headValues = new Map<string, string>();
+  for (const str of indexTemplate(nextTemplate).strings) {
+    if (str.pageInfo) headValues.set(str.tag, str.value);
+  }
+  const synced = syncStaticHead(fileText, headValues);
+  if (!synced.missing) {
+    fileText = synced.text;
+    // Rewriting inside <head> must not have disturbed the payload the page is
+    // built from. Cheap to check, and the failure it guards against is a
+    // corrupted site.
+    try {
+      if (parseBundle(fileText).template !== nextTemplate) {
+        return fail('spliced', 'Updating the share tags altered the page itself. Nothing was published.');
+      }
+    } catch (e) {
+      return fail('spliced', `The page stopped being readable: ${(e as Error).message}`);
+    }
+  }
+  set('spliced', 'done', synced.missing ? 'no block to update'
+    : synced.changed.length
+      ? `${synced.changed.length} brought up to date: ${synced.changed.map((c) => c.key).join(', ')}`
+      : 'already in step');
 
   // 4 — verify. THE GATE.
   set('verified', 'active', '');
   const check = verifyHeadTags(fileText);
   if (!check.ok) {
     return fail('verified', `${check.detail} Nothing was published.`);
+  }
+  // Present and well formed was never enough. It has to be current: the block
+  // passed this gate every time while telling search engines something the page
+  // itself stopped saying.
+  const stale = headMismatches(fileText, headValues);
+  if (stale.length) {
+    return fail(
+      'verified',
+      `The share tags scrapers read still disagree with the page for ${stale.map((m) => m.key).join(', ')}. `
+      + 'Nothing was published.',
+    );
   }
   set('verified', 'done', check.detail);
 

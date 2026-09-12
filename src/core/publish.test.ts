@@ -188,3 +188,67 @@ describe.skipIf(!hasReal)('publishing to preview', () => {
     expect(staged.replace(/\n  <meta name="robots"[^>]*>/, '')).toBe(live);
   });
 });
+
+/**
+ * The failure that prompted all of this.
+ *
+ * A Share / SEO edit goes into the template, which the runtime renders. The
+ * copy scrapers read is literal HTML in <head>, put there separately. Editing
+ * one never touched the other, and the gate passed either way because it only
+ * asked whether the block was present and well formed — never whether it still
+ * said what the page says. The live site has been advertising itself to Google
+ * with wording the page stopped using.
+ */
+describe.skipIf(!hasReal)('publishing a share-tag change', () => {
+  const dest = destinationsFor('index.html', 'https://antheasolve.com/').live;
+
+  const publishWith = async (changes: PendingChange[]) => {
+    const originalFile = readFileSync(REAL, 'utf8');
+    const bundle = parseBundle(originalFile);
+    const idx = indexTemplate(bundle.template);
+    return {
+      idx,
+      result: await publish({
+        ref: { owner: 'o', repo: 'r', branch: 'main' },
+        token: 'unused-while-offline',
+        originalFile,
+        destination: dest,
+        changes,
+        targets: buildTargets(bundle.template, idx).byId,
+        message: 'test',
+        online: false,
+      }, () => {}),
+    };
+  };
+
+  it('carries the edit into the copy scrapers actually read', async () => {
+    const { idx, result } = await publishWith([]);
+    const entry = idx.strings.find((s) => s.pageInfo && s.tag === 'description')!;
+    const published = result.fileText!;
+    const head = published.slice(published.indexOf('static-head:begin'), published.indexOf('static-head:end'));
+    // The template's wording, in the literal block, byte for byte.
+    expect(head).toContain(`content="${entry.value.replace(/&/g, '&amp;')}"`);
+  });
+
+  it('reports which tags it brought up to date rather than doing it quietly', async () => {
+    const { result } = await publishWith([]);
+    const note = result.steps.find((s) => s.id === 'spliced')!.note;
+    expect(note).toMatch(/description/);
+    expect(note).toMatch(/brought up to date/);
+  });
+
+  it('still passes the gate, and the gate now checks they agree', async () => {
+    const { result } = await publishWith([]);
+    expect(result.steps.find((s) => s.id === 'verified')!.state).toBe('done');
+    expect(result.outcome).toBe('queued');
+  });
+
+  it('leaves the page itself untouched by the head rewrite', async () => {
+    // The literal block sits outside the payload the page is built from.
+    // If that ever stopped being true the site would ship corrupted.
+    const originalFile = readFileSync(REAL, 'utf8');
+    const { result } = await publishWith([]);
+    expect(parseBundle(result.fileText!).template)
+      .toBe(parseBundle(originalFile).template);
+  });
+});
