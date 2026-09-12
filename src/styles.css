@@ -642,11 +642,59 @@ button:disabled { cursor: default; opacity: 0.4; }
 .dest-url { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-700); }
 .dest-why { font-size: 12px; line-height: 1.4; color: var(--color-neutral-800); }
 
-/* A break in a long list where the kind of thing changes, so the reader is told
-   they have crossed from what the page shows to what it merely carries. */
-.group-head { border-top: 2px solid var(--color-divider); padding-top: 12px; margin-top: 4px; }
-.group-head p {
-  margin: 5px 0 0;
+/* ---- banded sections ---- */
+
+/* Alternating tone per part of the page, the way a spreadsheet alternates rows:
+   the edge of a section is visible without reading a word. Tone rather than
+   colour, deliberately — the accent red means "changed, look here", and a
+   palette of section colours would leave it as one hue among several. */
+.panel-banded { padding: 12px 0; gap: 0; }
+.panel-banded > .label { padding: 0 12px 10px; }
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--color-divider);
+}
+.band.alt { background: var(--color-neutral-200); }
+.band:last-child { border-bottom: 1px solid var(--color-divider); }
+
+/* Sticky, so the answer to "which part am I in" survives the scroll. */
+.band-head {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: -10px -12px 0;
+  padding: 8px 12px;
+  background: inherit;
+  backdrop-filter: blur(2px);
+}
+.band:not(.alt) .band-head { background: var(--color-bg); }
+.band.alt .band-head { background: var(--color-neutral-200); }
+
+.band-name {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-neutral-800);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.band-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+.band-note {
+  margin: 0;
   font-size: 12px;
   line-height: 1.45;
   color: var(--color-neutral-700);

@@ -6,6 +6,7 @@ import type { FitReport } from '../core/fit';
 import { useRef, useState } from 'react';
 import type { ElementNode, StringEntry, TemplateIndex } from '../core/htmlIndex';
 import type { Crumb } from '../core/ancestry';
+import { groupBySection } from '../core/sections';
 import type { PendingChange } from '../core/publish';
 import type { EditTarget } from '../core/targets';
 import type { StyleDecl, ThemeToken } from '../core/css';
@@ -77,23 +78,38 @@ export function WordsPanel({
     </div>
   );
 
+  // Banded by part of the page, alternating tone, so the eye can find the edge
+  // of a section without reading a word — the spreadsheet trick. The parts are
+  // the page's own landmarks, named by their own headings.
+  const groups = groupBySection(index, words);
+
   return (
-    <div className="panel">
+    <div className="panel panel-banded">
       <div className="label">Words on the page — {words.length}</div>
-      {words.map(field)}
+
+      {groups.map((g, i) => (
+        <section className={`band ${i % 2 ? 'alt' : ''}`} key={g.section.id || `loose${i}`}>
+          <header className="band-head">
+            <span className="band-name" title={g.section.label}>{g.section.label}</span>
+            <span className="band-count">{g.entries.length}</span>
+          </header>
+          {g.entries.map(field)}
+        </section>
+      ))}
 
       {seo.length > 0 && (
-        <>
-          <div className="group-head">
-            <div className="label">Page information — {seo.length}</div>
-            <p>
-              None of these appear on the page. They are what Google shows in
-              search results and what a link preview shows when someone shares
-              the address.
-            </p>
-          </div>
+        <section className={`band ${groups.length % 2 ? 'alt' : ''}`}>
+          <header className="band-head">
+            <span className="band-name">Page information</span>
+            <span className="band-count">{seo.length}</span>
+          </header>
+          <p className="band-note">
+            None of these appear on the page. They are what Google shows in
+            search results and what a link preview shows when someone shares
+            the address.
+          </p>
           {seo.map(field)}
-        </>
+        </section>
       )}
     </div>
   );
