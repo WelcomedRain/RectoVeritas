@@ -51,6 +51,8 @@ export function WordsPanel({
   // separated now, and the words you can see come first.
   const seo = index.strings.filter((s) => s.pageInfo);
   const words = index.strings.filter((s) => !s.pageInfo);
+  /** Only what the reader has explicitly opened or shut; the rest take defaults. */
+  const [openBands, setOpenBands] = useState<Record<string, boolean>>({});
 
   const field = (s: StringEntry) => (
     <div className="field" key={s.id}>
@@ -83,34 +85,61 @@ export function WordsPanel({
   // the page's own landmarks, named by their own headings.
   const groups = groupBySection(index, words);
 
+  /**
+   * Page information sits first and shut.
+   *
+   * First because that is where it sits in the document, and a list that
+   * claims to follow the page should not quietly reorder it. Shut because it
+   * is rarely edited, cannot be selected by clicking the page, and is the one
+   * group that has been mistaken for page copy — fourteen boxes that look
+   * exactly like the others and behave nothing like them. Closed, it is one
+   * line instead of a false start.
+   */
+  const bands: {
+    key: string; label: string; note?: string; entries: StringEntry[]; shut?: boolean;
+  }[] = [
+    ...(seo.length ? [{
+      key: '__info',
+      label: 'Page information',
+      note: 'None of these appear on the page. They are what Google shows in '
+        + 'search results and what a link preview shows when someone shares the address.',
+      entries: seo,
+      shut: true,
+    }] : []),
+    ...groups.map((g, i) => ({
+      key: g.section.id || `loose-${i}`,
+      label: g.section.label,
+      entries: g.entries,
+    })),
+  ];
+
   return (
     <div className="panel panel-banded">
-      <div className="label">Words on the page — {words.length}</div>
+      <div className="label">
+        {words.length} on the page{seo.length ? ` · ${seo.length} page information` : ''}
+      </div>
 
-      {groups.map((g, i) => (
-        <section className={`band ${i % 2 ? 'alt' : ''}`} key={g.section.id || `loose${i}`}>
-          <header className="band-head">
-            <span className="band-name" title={g.section.label}>{g.section.label}</span>
-            <span className="band-count">{g.entries.length}</span>
-          </header>
-          {g.entries.map(field)}
-        </section>
-      ))}
-
-      {seo.length > 0 && (
-        <section className={`band ${groups.length % 2 ? 'alt' : ''}`}>
-          <header className="band-head">
-            <span className="band-name">Page information</span>
-            <span className="band-count">{seo.length}</span>
-          </header>
-          <p className="band-note">
-            None of these appear on the page. They are what Google shows in
-            search results and what a link preview shows when someone shares
-            the address.
-          </p>
-          {seo.map(field)}
-        </section>
-      )}
+      {bands.map((b, i) => {
+        // A band holding the selection opens itself. Otherwise clicking a
+        // thing in the page would select a box nobody can see.
+        const holdsSelection = selectedId != null && b.entries.some((e) => e.id === selectedId);
+        const open = openBands[b.key] ?? (!b.shut || holdsSelection);
+        return (
+          <section className={`band ${i % 2 ? 'alt' : ''} ${open ? '' : 'shut'}`} key={b.key}>
+            <button
+              className="band-head"
+              aria-expanded={open}
+              onClick={() => setOpenBands((o) => ({ ...o, [b.key]: !open }))}
+            >
+              <span className="band-mark" aria-hidden>{open ? '−' : '+'}</span>
+              <span className="band-name" title={b.label}>{b.label}</span>
+              <span className="band-count">{b.entries.length}</span>
+            </button>
+            {open && b.note && <p className="band-note">{b.note}</p>}
+            {open && b.entries.map(field)}
+          </section>
+        );
+      })}
     </div>
   );
 }
