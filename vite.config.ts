@@ -43,8 +43,25 @@ function devSampleSite(): Plugin {
  */
 const base = '/';
 
+/**
+ * A port of our own, and a hard failure if it is taken.
+ *
+ * A second editor is being built in parallel with Codex, in the `site-editor`
+ * repository, and it uses Vite's default 5173. Vite's default behaviour on a
+ * busy port is to move quietly to the next one — which is how a session here
+ * ended up driving the other project's page believing it was this one, and
+ * deleting an IndexedDB on its origin. Browser storage is scoped by origin, so
+ * a port collision is a data collision.
+ *
+ * `strictPort` turns that silent hop into an error that says the port is busy.
+ * Loud is the point: the failure mode being prevented is not noticing.
+ */
+const DEV_PORT = 5180;
+
 export default defineConfig({
   base,
+  server: { port: DEV_PORT, strictPort: true },
+  preview: { port: DEV_PORT + 1, strictPort: true },
   plugins: [
     react(),
     devSampleSite(),
