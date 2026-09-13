@@ -767,3 +767,53 @@ button:disabled { cursor: default; opacity: 0.4; }
 /* A wrapper with no identity of its own. Still shown, because leaving it out
    would make the trail lie about the shape of the page. */
 .crumb.dim:not(.on) { color: var(--color-neutral-600); }
+
+/* ---- strings that are parts of one thing ---- */
+
+/* A logo is one link holding an image and two spans. It arrives as four boxes
+   and none of them is the thing you are looking at, so the rule down the side
+   says where it starts and stops. */
+.clump {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 9px;
+  border-left: 2px solid var(--color-neutral-400);
+}
+
+.clump-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.clump-head:hover .clump-preview { color: var(--color-text); }
+.clump-head:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+.clump-kind {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-neutral-800);
+  flex: none;
+}
+.clump-preview {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clump-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  flex: none;
+}

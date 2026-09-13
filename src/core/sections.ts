@@ -118,3 +118,113 @@ export function groupBySection(index: TemplateIndex, strings: StringEntry[]): Se
   }
   return groups;
 }
+
+/**
+ * Strings that are parts of one thing.
+ *
+ * A logo is an `<a>` holding an image and two spans, and it arrives in the list
+ * as four consecutive boxes — a web address, an image description and two
+ * fragments of text — with nothing to say they are one link. Each is editable
+ * and none of them is the thing you are looking at.
+ *
+ * Two conditions, and the first was learned by getting it wrong. A count alone
+ * ("any element owning two or more strings") produced eighty-one groups on this
+ * site: every layout div acquired a heading reading "div", and the logo split
+ * in two because the inner <span> owning both text runs sits nearer than the
+ * <a> that owns all four. Clutter, and the wrong answer to the one case it was
+ * built for.
+ *
+ * So: the owner must be something a person would name — a link, a button, a
+ * list item — AND own more than one of the strings here. A layout div is not a
+ * thing; a link is. An element owning all of them is just the container.
+ */
+
+/** Elements that are one thing made of parts, rather than a box around parts. */
+const COMPOSITE = new Set([
+  'a', 'button', 'li', 'figure', 'figcaption', 'blockquote', 'label',
+  'summary', 'dt', 'dd', 'picture', 'video', 'h1', 'h2', 'h3', 'h4',
+]);
+export interface Cluster {
+  /** The element these strings belong to, or null for a string standing alone. */
+  ownerId: string | null;
+  tag: string;
+  /** Enough of its words to recognise it by. */
+  preview: string;
+  entries: StringEntry[];
+}
+
+/** Ancestors of an element, nearest first, stopping before `withinId`. */
+function ancestorsWithin(index: TemplateIndex, elementId: string, withinId: string): string[] {
+  const out: string[] = [];
+  let node = index.byId.get(elementId) ?? null;
+  const seen = new Set<string>();
+  while (node && node.id !== withinId && !seen.has(node.id)) {
+    seen.add(node.id);
+    out.push(node.id);
+    node = node.parentId ? index.byId.get(node.parentId) ?? null : null;
+  }
+  return out;
+}
+
+export function clusterByOwner(
+  index: TemplateIndex,
+  entries: StringEntry[],
+  withinId: string,
+): Cluster[] {
+  const chains = new Map<string, string[]>();
+  const owns = new Map<string, number>();
+
+  for (const e of entries) {
+    let chain = chains.get(e.elementId);
+    if (!chain) {
+      chain = e.elementId ? ancestorsWithin(index, e.elementId, withinId) : [];
+      chains.set(e.elementId, chain);
+    }
+    for (const id of chain) owns.set(id, (owns.get(id) ?? 0) + 1);
+  }
+
+  const ownerFor = (e: StringEntry): string | null => {
+    for (const id of chains.get(e.elementId) ?? []) {
+      const n = owns.get(id) ?? 0;
+      if (n < 2 || n >= entries.length) continue;
+      if (!COMPOSITE.has(index.byId.get(id)?.tag ?? '')) continue;
+      return id;
+    }
+    return null;
+  };
+
+  const out: Cluster[] = [];
+  for (const e of entries) {
+    const owner = ownerFor(e);
+    const last = out[out.length - 1];
+    if (last && last.ownerId !== null && last.ownerId === owner) {
+      last.entries.push(e);
+      continue;
+    }
+    out.push({
+      ownerId: owner,
+      tag: owner ? index.byId.get(owner)?.tag ?? '' : '',
+      preview: '',
+      entries: [e],
+    });
+  }
+
+  // A group of one is a heading over a single box: all cost, no information.
+  // It happens when an owner's strings are not consecutive in the list.
+  for (const c of out) {
+    if (c.entries.length < 2) { c.ownerId = null; c.tag = ''; }
+  }
+
+  // Name each cluster by its own words, which is how a person recognises it.
+  for (const c of out) {
+    if (!c.ownerId) continue;
+    const words = c.entries
+      .filter((e) => e.kind === 'text')
+      .map((e) => e.value.trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ');
+    c.preview = (words || c.entries.map((e) => e.value.trim()).find(Boolean) || '').slice(0, 60);
+  }
+  return out;
+}

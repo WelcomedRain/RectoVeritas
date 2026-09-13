@@ -676,6 +676,7 @@ export function App() {
               valueOf={ed.valueOf}
               onEdit={ed.edit}
               onFocus={(s: StringEntry) => ed.select(s.id, s.elementId)}
+              onSelectElement={(id) => ed.select(null, id)}
               changes={state.changes}
               selectedId={state.selection.targetId}
             />

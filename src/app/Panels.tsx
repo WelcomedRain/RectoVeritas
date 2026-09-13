@@ -6,7 +6,7 @@ import type { FitReport } from '../core/fit';
 import { useRef, useState } from 'react';
 import type { ElementNode, StringEntry, TemplateIndex } from '../core/htmlIndex';
 import type { Crumb } from '../core/ancestry';
-import { groupBySection } from '../core/sections';
+import { groupBySection, clusterByOwner } from '../core/sections';
 import type { PendingChange } from '../core/publish';
 import type { EditTarget } from '../core/targets';
 import type { StyleDecl, ThemeToken } from '../core/css';
@@ -34,7 +34,7 @@ export function autosize(el: HTMLTextAreaElement | null) {
 /* ------------------------------- Words ------------------------------- */
 
 export function WordsPanel({
-  index, valueOf, onEdit, onFocus, changes, selectedId,
+  index, valueOf, onEdit, onFocus, changes, selectedId, onSelectElement,
 }: {
   index: TemplateIndex;
   valueOf: (s: StringEntry) => string;
@@ -42,6 +42,7 @@ export function WordsPanel({
   onFocus: (s: StringEntry) => void;
   changes: Map<string, PendingChange>;
   selectedId: string | null;
+  onSelectElement: (elementId: string) => void;
 }) {
   // Page furniture and page content are different jobs, and this list used to
   // run them together in document order — which put fourteen invisible
@@ -49,6 +50,12 @@ export function WordsPanel({
   // looking for the main heading scrolled to the top, opened the first box
   // that would open, and edited the meta description instead. The two are
   // separated now, and the words you can see come first.
+  const KIND: Record<string, string> = {
+    a: 'Link', button: 'Button', li: 'List item', figure: 'Figure',
+    label: 'Label', blockquote: 'Quote', summary: 'Summary', dt: 'Term', dd: 'Detail',
+    h1: 'Heading', h2: 'Heading', h3: 'Heading', h4: 'Heading',
+  };
+
   const seo = index.strings.filter((s) => s.pageInfo);
   const words = index.strings.filter((s) => !s.pageInfo);
   /** Only what the reader has explicitly opened or shut; the rest take defaults. */
@@ -96,7 +103,8 @@ export function WordsPanel({
    * line instead of a false start.
    */
   const bands: {
-    key: string; label: string; note?: string; entries: StringEntry[]; shut?: boolean;
+    key: string; label: string; note?: string; entries: StringEntry[];
+    shut?: boolean; section?: string;
   }[] = [
     ...(seo.length ? [{
       key: '__info',
@@ -111,6 +119,7 @@ export function WordsPanel({
       key: g.section.id || `loose-${i}`,
       label: g.section.label,
       entries: g.entries,
+      section: g.section.id || undefined,
     })),
   ];
 
@@ -133,7 +142,26 @@ export function WordsPanel({
               <span className="band-count">{b.entries.length}</span>
             </button>
             {open && b.note && <p className="band-note">{b.note}</p>}
-            {open && b.entries.map(field)}
+            {open && (b.section
+              ? clusterByOwner(index, b.entries, b.section).map((c, ci) => (
+                c.ownerId === null
+                  ? c.entries.map(field)
+                  : (
+                    <div className="clump" key={`${c.ownerId}-${ci}`}>
+                      {/* Four boxes that are one link, said once at the top of
+                          them. Clicking it selects the element itself, which
+                          outlines the whole thing in the page and opens its
+                          markup — the four were never separately meaningful. */}
+                      <button className="clump-head" onClick={() => onSelectElement(c.ownerId!)}>
+                        <span className="clump-kind">{KIND[c.tag] ?? c.tag}</span>
+                        <span className="clump-preview">{c.preview}</span>
+                        <span className="clump-count">{c.entries.length}</span>
+                      </button>
+                      {c.entries.map(field)}
+                    </div>
+                  )
+              ))
+              : b.entries.map(field))}
           </section>
         );
       })}
