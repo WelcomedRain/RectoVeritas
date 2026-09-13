@@ -25,6 +25,13 @@
   --color-accent-700: #ae1800;
   --color-accent-800: #7c1405;
 
+  /* Zebra banding and the sticky heading that sits on it. Both are set from
+     measured contrast against the panel ground (#f3f2f2) rather than picked:
+     the band needs about 1.2 to register at a glance, and the heading needs to
+     be plainly darker than either band so it reads as a label. */
+  --band-alt: #e3dfdf;
+  --band-head: #cec8c8;
+
   --font-heading: 'Archivo', system-ui, sans-serif;
   --font-body: 'Archivo', system-ui, sans-serif;
   --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, monospace;
@@ -658,7 +665,10 @@ button:disabled { cursor: default; opacity: 0.4; }
   padding: 10px 12px 14px;
   border-top: 1px solid var(--color-divider);
 }
-.band.alt { background: var(--color-neutral-200); }
+/* Measured, not chosen by eye. The alternation was #f3f2f2 against #eae7e7 —
+   a contrast ratio of 1.10, which is present in the stylesheet and absent on
+   the screen. Spreadsheets, where this trick comes from, sit nearer 1.2. */
+.band.alt { background: var(--band-alt); }
 .band:last-child { border-bottom: 1px solid var(--color-divider); }
 
 /* Sticky, so the answer to "which part am I in" survives the scroll, and a
@@ -693,9 +703,17 @@ button:disabled { cursor: default; opacity: 0.4; }
   width: 9px;
   flex: none;
   color: var(--color-neutral-600);
+}
+/* The heading is its own surface, the same one on every band.
+
+   It used to inherit the band's background, which meant it was identical to
+   what it headed — measured contrast 1.00 — so a sticky title floated over the
+   list with nothing to separate it from either the rows below or the tab row
+   above. A heading that cannot be told from its content is not a heading. */
+.band-head, .band.alt .band-head {
+  background: var(--band-head);
+  border-bottom: 1px solid var(--color-divider);
 }
-.band:not(.alt) .band-head { background: var(--color-bg); }
-.band.alt .band-head { background: var(--color-neutral-200); }
 
 .band-name {
   font-size: 11px;
