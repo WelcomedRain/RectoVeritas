@@ -45,7 +45,7 @@ export function WordsPanel({
 }) {
   // Page furniture and page content are different jobs, and this list used to
   // run them together in document order — which put fourteen invisible
-  // Share / SEO boxes above the first word anybody can actually see. Someone
+  // metadata boxes above the first word anybody can actually see. Someone
   // looking for the main heading scrolled to the top, opened the first box
   // that would open, and edited the meta description instead. The two are
   // separated now, and the words you can see come first.
@@ -86,7 +86,7 @@ export function WordsPanel({
   const groups = groupBySection(index, words);
 
   /**
-   * Page information sits first and shut.
+   * Metadata sits first and shut.
    *
    * First because that is where it sits in the document, and a list that
    * claims to follow the page should not quietly reorder it. Shut because it
@@ -100,9 +100,10 @@ export function WordsPanel({
   }[] = [
     ...(seo.length ? [{
       key: '__info',
-      label: 'Page information',
-      note: 'None of these appear on the page. They are what Google shows in '
-        + 'search results and what a link preview shows when someone shares the address.',
+      label: 'Metadata',
+      note: 'The page head. None of it is drawn on the page: it is what a search '
+        + 'engine prints, what a link preview shows, and how the browser is told '
+        + 'to lay the page out.',
       entries: seo,
       shut: true,
     }] : []),
@@ -115,10 +116,6 @@ export function WordsPanel({
 
   return (
     <div className="panel panel-banded">
-      <div className="label">
-        {words.length} on the page{seo.length ? ` · ${seo.length} page information` : ''}
-      </div>
-
       {bands.map((b, i) => {
         // A band holding the selection opens itself. Otherwise clicking a
         // thing in the page would select a box nobody can see.
@@ -461,7 +458,7 @@ export function SelectionPanel({
       {trail}
       <table className="proptable">
         <tbody>
-          <tr><td className="k">Kind</td><td>{entry.kind === 'attr' ? 'Share / SEO tag' : entry.label}</td></tr>
+          <tr><td className="k">Kind</td><td>{entry.label}</td></tr>
           <tr><td className="k">File</td><td className="mono" style={{ fontSize: 11 }}>{change?.file ?? 'index.html'}</td></tr>
           <tr><td className="k">Found at</td><td className="mono" style={{ fontSize: 11 }}>byte {entry.start.toLocaleString()}</td></tr>
           <tr>

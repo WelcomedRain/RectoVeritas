@@ -19,7 +19,7 @@ describe('page information vs page content', () => {
       <title>Anthea</title>
     </head><body><h1>Hello</h1></body></html>`);
     for (const s of i.strings.filter((x) => ['meta', 'link', 'title'].includes(x.tag.split('@')[0])
-      || x.label === 'Share / SEO')) {
+      || x.pageInfo)) {
       expect(s.pageInfo, `${s.label} :: ${s.tag}`).toBe(true);
     }
   });

@@ -128,8 +128,27 @@ const ATTR_NAME_END = /[\s/>=]/;
  * photograph. The name a person reads has to say which of those they are
  * looking at, or they edit the wrong one.
  */
-function attrLabel(tag: string, name: string): string {
-  if (tag === 'meta') return 'Share / SEO';
+function metaLabel(key: string): string {
+  if (key.startsWith('og:')) return 'Link preview';
+  if (key.startsWith('twitter:')) return 'X preview';
+  switch (key) {
+    case 'viewport': return 'Display';
+    case 'description': return 'Search result';
+    case 'author': return 'Author';
+    case 'theme-color': return 'Browser theme';
+    case 'robots': return 'Search engines';
+    case 'keywords': return 'Keywords';
+    case 'generator': return 'Generator';
+    default: return 'Metadata';
+  }
+}
+
+function attrLabel(tag: string, name: string, key?: string): string {
+  // Every meta used to read "Share / SEO", which is not merely vague — it is
+  // wrong for a fifth of them. `viewport` is a mobile layout directive and
+  // `theme-color` paints the browser's address bar; neither is shared and
+  // neither is seen by a search engine.
+  if (tag === 'meta') return metaLabel(key ?? name);
   if (name === 'alt') return 'Description';
   if (name === 'title') return 'Tooltip';
   if (name === 'href') return 'Link address';
@@ -421,7 +440,7 @@ export function indexTemplate(src: string): TemplateIndex {
         kind: 'attr',
         elementId: el.id,
         tag: label,
-        label: attrLabel(el.tag, attr.name),
+        label: attrLabel(el.tag, attr.name, label),
         attrName: attr.name,
         start: attr.valueStart,
         end: attr.valueEnd,

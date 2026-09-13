@@ -66,7 +66,7 @@ describe('the injected bridge', () => {
     // sentences am I editing" — but only if the absence is stated out loud.
     const js = bridgeJs();
     expect(js).toContain('recto:selection-shown');
-    expect(js).toMatch(/page information/i);
+    expect(js).toMatch(/metadata/i);
   });
 
   // Against the real export, and skipped when it is not on this machine — the

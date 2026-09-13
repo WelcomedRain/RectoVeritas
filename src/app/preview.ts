@@ -136,7 +136,7 @@ const BRIDGE = String.raw`
       why = !el
         ? 'That element is not in the rendered page.'
         : (inHead || tag === 'meta' || tag === 'link' || tag === 'title')
-          ? 'This is page information. It is not drawn on the page, so there is nothing to point at.'
+          ? 'This is metadata, in the page head. It is not drawn on the page, so there is nothing to point at.'
           : 'This element is not being drawn at this width, so there is nothing to point at.';
     }
     parent.postMessage({ type: 'recto:selection-shown', shown: !!shown, detail: why }, '*');
