@@ -95,19 +95,36 @@ describe.skipIf(!existsSync(REAL))('against the real site', () => {
     return { file, values };
   };
 
-  it('finds the drift that is live on the site right now', () => {
-    // description and og:description say "desktop applications" to scrapers
-    // and "web apps" on the page.
+  /**
+   * Written first as "finds the drift that is live right now", asserting that
+   * description and og:description disagreed. Then the drift was fixed and the
+   * test failed — because it had encoded a fault as a requirement. What is
+   * worth guarding is the opposite: that the two copies agree, and that they
+   * still agree after the next publish.
+   */
+  it('finds the two copies in step, and says so if they ever part', () => {
     const { file, values } = load();
-    const bad = headMismatches(file, values).map((m) => m.key).sort();
-    expect(bad).toEqual(['description', 'og:description']);
+    expect(headMismatches(file, values)).toEqual([]);
   });
 
-  it('resolves it without disturbing anything else', () => {
+  it('resolves a drift in the real file without disturbing anything else', () => {
     const { file, values } = load();
-    const r = syncStaticHead(file, values);
-    expect(r.changed.map((c) => c.key).sort()).toEqual(['description', 'og:description']);
+    // Push the scraper copy out of step the way an export or a hand-edit would,
+    // then check the sync pulls exactly that back and touches nothing else.
+    const b = file.indexOf('<!-- static-head:begin');
+    const e = file.indexOf('<!-- static-head:end -->');
+    const drifted = file.slice(0, b)
+      + file.slice(b, e).replace(
+        /(<meta name="description" content=")[^"]*/,
+        '$1something else entirely',
+      )
+      + file.slice(e);
+
+    expect(headMismatches(drifted, values).map((m) => m.key)).toEqual(['description']);
+    const r = syncStaticHead(drifted, values);
+    expect(r.changed.map((c) => c.key)).toEqual(['description']);
     expect(headMismatches(r.text, values)).toHaveLength(0);
+    expect(r.text).toBe(file);
   });
 
   it('leaves the file publishable — same bundle, same gate', () => {

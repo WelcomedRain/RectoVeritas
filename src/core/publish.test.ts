@@ -230,11 +230,35 @@ describe.skipIf(!hasReal)('publishing a share-tag change', () => {
     expect(head).toContain(`content="${entry.value.replace(/&/g, '&amp;')}"`);
   });
 
-  it('reports which tags it brought up to date rather than doing it quietly', async () => {
-    const { result } = await publishWith([]);
+  it('carries an actual edit through to the scraper copy, and names what it moved', async () => {
+    /**
+     * The first version of this published no changes and asserted the step
+     * said "description" — which only held while the real site happened to be
+     * drifted. Once the drift was fixed there was nothing to bring up to date
+     * and the test failed, having tested a state of the site rather than the
+     * behaviour of the code. So: make the edit, then require it to arrive.
+     */
+    const originalFile = readFileSync(REAL, 'utf8');
+    const idx0 = indexTemplate(parseBundle(originalFile).template);
+    const entry = idx0.strings.find((s) => s.pageInfo && s.tag === 'description')!;
+    const edited = `${entry.value} Changed for the test.`;
+
+    const { result } = await publishWith([{
+      targetId: entry.id, file: 'index.html', label: entry.label, tag: entry.tag,
+      kind: 'attr', liveValue: entry.value, nextValue: edited,
+    }]);
+    expect(result.error ?? '(none)').toBe('(none)');
+
     const note = result.steps.find((s) => s.id === 'spliced')!.note;
     expect(note).toMatch(/description/);
     expect(note).toMatch(/brought up to date/);
+
+    const published = result.fileText!;
+    const head = published.slice(
+      published.indexOf('static-head:begin'), published.indexOf('static-head:end'),
+    );
+    // The edit reached the copy scrapers read, which is the whole point.
+    expect(head).toContain('Changed for the test.');
   });
 
   it('still passes the gate, and the gate now checks they agree', async () => {
