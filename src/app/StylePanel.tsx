@@ -16,6 +16,7 @@ import { FEATURED_PROPS, isColorValue, resolveVar } from '../core/css';
 import type { EditTarget } from '../core/targets';
 import type { PendingChange } from '../core/publish';
 import type { ElementNode } from '../core/htmlIndex';
+import type { TraceResult } from './trace';
 
 export interface MatchedRule { rule: CssRule; count: number }
 
@@ -156,7 +157,7 @@ export function SharedValueField({
  */
 export function StyleSections({
   element, decls, hoverDecls, rules, valueOf, onEdit, onScopeToElement, changes,
-  targetsById, tokens, hoverHeld, onHoldHover, compact,
+  targetsById, tokens, hoverHeld, onHoldHover, compact, onTrace, traceFor,
 }: Common & {
   element: ElementNode | null;
   decls: StyleDecl[];
@@ -165,6 +166,10 @@ export function StyleSections({
   hoverHeld: boolean;
   onHoldHover: (hold: boolean) => void;
   compact?: boolean;
+  /** Ask the page where a property's value comes from. */
+  onTrace?: (prop: string) => void;
+  /** The answer, once it arrives. */
+  traceFor?: (prop: string) => TraceResult | null;
 }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -179,12 +184,23 @@ export function StyleSections({
   const row = (d: StyleDecl) => {
     const target = targetsById.get(d.id);
     if (!target) return null;
+    const trace = traceFor?.(d.prop);
     return (
       <div className="field" key={d.id}>
         <div className="field-head">
           <span className="label">{d.prop}</span>
           {changes.has(d.id) && <span className="tag" style={{ color: 'var(--color-accent-700)' }}>edited</span>}
+          {onTrace && (
+            <button
+              className="why"
+              title={`Where does this ${d.prop} come from?`}
+              onClick={() => onTrace(d.prop)}
+            >
+              why?
+            </button>
+          )}
         </div>
+        {trace && <StyleTrace trace={trace} prop={d.prop} />}
         <ValueField
           target={target}
           value={valueOf(target)}
@@ -327,6 +343,8 @@ export function StylePanel(props: Common & {
   rules: MatchedRule[];
   hoverHeld: boolean;
   onHoldHover: (hold: boolean) => void;
+  onTrace?: (prop: string) => void;
+  traceFor?: (prop: string) => TraceResult | null;
 }) {
   if (!props.element) {
     return (
@@ -429,3 +447,83 @@ export function ThemePanel({
 }
 
 export { isColorValue };
+
+/**
+ * Where a value comes from, and what it beat.
+ *
+ * The recurring question while building this editor has been "I changed it and
+ * nothing happened", and on this site the answer is usually that the element
+ * carries the property in its own style attribute, which outranks any rule.
+ *
+ * The ranking is a prediction — browsers report the answer, not the reasoning —
+ * so it is checked against what the page actually draws. When the two disagree
+ * that is said plainly instead of explaining confidently in the wrong
+ * direction.
+ */
+export function StyleTrace({ trace, prop }: { trace: TraceResult; prop: string }) {
+  if (trace.pending) return <div className="trace"><span className="label">Looking…</span></div>;
+  if (trace.missing) {
+    return <div className="trace"><span className="label">That element is not in the page.</span></div>;
+  }
+  if (!trace.winner) {
+    return (
+      <div className="trace">
+        <div className="trace-line">
+          Nothing sets <b>{prop}</b> on this element. The page is drawing{' '}
+          <span className="mono">{trace.computed || 'a default'}</span>, inherited or built in.
+        </div>
+      </div>
+    );
+  }
+
+  const where = (d: { selector: string | null; origin?: string }) =>
+    d.selector === null ? 'this element’s own style' : d.selector;
+
+  return (
+    <div className="trace">
+      <div className="trace-line">
+        <span className="trace-key">In effect</span>
+        <span className="mono">{trace.winner.value}</span>
+        <span className="trace-from">from {where(trace.winner)}</span>
+        {trace.winner.important && <span className="ver-tag">!important</span>}
+      </div>
+
+      {trace.overridden.map((o, i) => (
+        <div className="trace-line dim" key={i}>
+          <span className="trace-key">Overridden</span>
+          <span className="mono">{o.value}</span>
+          <span className="trace-from">
+            from {where(o)} — beaten by {o.beatenBy}
+          </span>
+        </div>
+      ))}
+
+      {/* Most values cannot be compared with what the page draws: clamp() and
+          var() resolve to something else entirely. Showing the drawn value is
+          useful; calling the difference a disagreement would not be. */}
+      {trace.agrees === 'not-comparable' && trace.computed
+        && trace.computed !== trace.winner.value && (
+        <div className="trace-line dim">
+          <span className="trace-key">Drawing</span>
+          <span className="mono">{trace.computed}</span>
+          <span className="trace-from">once resolved</span>
+        </div>
+      )}
+
+      {trace.agrees === 'differs' && (
+        <div className="trace-warn">
+          The page is drawing <span className="mono">{trace.computed}</span>, which is not
+          what this ranking predicts. Something here is beyond what the editor can read —
+          treat the list above as the candidates, not the verdict.
+        </div>
+      )}
+
+      {trace.unreadable > 0 && (
+        <div className="trace-warn">
+          {trace.unreadable} stylesheet{trace.unreadable === 1 ? '' : 's'} could not be read
+          from here, so {trace.unreadable === 1 ? 'it is' : 'they are'} missing from this list.
+        </div>
+      )}
+    </div>
+  );
+}

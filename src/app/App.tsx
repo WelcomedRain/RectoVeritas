@@ -17,6 +17,7 @@ import { statusLine } from './status';
 import { destinationsFor, type DestinationId } from '../core/destination';
 import { ancestryOf, enclosingBlock } from '../core/ancestry';
 import type { Version } from '../core/history';
+import { readTrace, type TracePayload, type TraceResult } from './trace';
 import { reportFit, makeItCover, makeItFitByHeight, type FitMeasurement, type SweepPoint } from '../core/fit';
 
 type Mode = 'page' | 'split' | 'code';
@@ -105,9 +106,25 @@ export function App() {
   const [selShown, setSelShown] = useState<{ shown: boolean; detail: string }>(
     { shown: true, detail: '' },
   );
+  /**
+   * Style Trace: the panel asks where a value comes from, the page answers.
+   *
+   * Keyed by element and property, and cleared when the selection moves, so an
+   * answer about one element can never be read as an answer about another.
+   */
+  const [traceReq, setTraceReq] = useState<{ elementId: string; prop: string; nonce: number } | null>(null);
+  const [traces, setTraces] = useState<Record<string, TraceResult>>({});
+  const traceKey = (elementId: string, prop: string) => `${elementId}|${prop}`;
+
+  const onTraced = useCallback((p: TracePayload) => {
+    setTraces((t) => ({ ...t, [`${p.elementId}|${p.prop}`]: readTrace(p) }));
+  }, []);
+
   const onSelectionShown = useCallback(
     (shown: boolean, detail: string) => setSelShown({ shown, detail }), [],
   );
+
+  useEffect(() => { setTraces({}); setTraceReq(null); }, [state.selection.elementId]);
 
   const selectedEntry = state.selection.targetId
     ? state.index?.stringsById.get(state.selection.targetId) ?? null
@@ -673,6 +690,8 @@ export function App() {
                 originalHtmlFor={originalHtmlFor}
                 originalStyleFor={originalStyleFor}
           onSelectionShown={onSelectionShown}
+          traceRequest={traceReq}
+          onTraced={onTraced}
           selectedLabel={selectedEntry?.label ?? selectedElement?.tag ?? ''}
               />
             )}
@@ -726,6 +745,16 @@ export function App() {
               rules={matchingRules}
               hoverHeld={hoverHeld}
               onHoldHover={setHoverHeld}
+              onTrace={(prop) => {
+                const id = selectedElement?.id;
+                if (!id) return;
+                setTraces((t) => ({
+                  ...t,
+                  [traceKey(id, prop)]: { pending: true, computed: '', winner: null, overridden: [], agrees: 'not-comparable', unreadable: 0 },
+                }));
+                setTraceReq({ elementId: id, prop, nonce: Date.now() });
+              }}
+              traceFor={(prop) => (selectedElement ? traces[traceKey(selectedElement.id, prop)] ?? null : null)}
               valueOf={ed.valueOf}
               onEdit={editWithHover}
               onScopeToElement={ed.applyOverride}

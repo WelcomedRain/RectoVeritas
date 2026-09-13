@@ -7,6 +7,7 @@ import {
 import type { TemplateIndex } from '../core/htmlIndex';
 import type { PreviewAck } from './previewable';
 import type { FitMeasurement, SweepPoint } from '../core/fit';
+import type { TracePayload } from './trace';
 
 interface Props {
   file: string;
@@ -51,6 +52,9 @@ interface Props {
   onApplied: (id: string, ack: PreviewAck) => void;
   /** Whether the current selection could actually be pointed at in the page. */
   onSelectionShown: (shown: boolean, detail: string) => void;
+  /** A property whose origin the panel has asked about, or null. */
+  traceRequest: { elementId: string; prop: string; nonce: number } | null;
+  onTraced: (p: TracePayload) => void;
   /** Human name for the selected thing, drawn on the highlight. */
   selectedLabel?: string;
 }
@@ -59,7 +63,7 @@ export function PageView({
   fileText, index, onSelectElement, selectedElementId, liveEdits, forceHover,
   matchSelectors, onRulesMatched, measureFitFor, onFitMeasured, assetRefs,
   sweepFor, onSwept, originalHtmlFor, originalStyleFor, onApplied,
-  onSelectionShown, selectedLabel,
+  onSelectionShown, selectedLabel, traceRequest, onTraced,
 }: Props) {
   const [device, setDevice] = useState<Device>('desktop');
   const [zoom, setZoom] = useState<number | 'fill'>('fill');
@@ -122,6 +126,9 @@ export function PageView({
       if (m.type === 'recto:ready') setReady(true);
       if (m.type === 'recto:select') onSelectElement(m.elementId, m.runOrdinal);
       if (m.type === 'recto:applied') onApplied(m.id, { result: m.result, why: m.why });
+      if ((m as { type: string }).type === 'recto:traced') {
+        onTraced(m as unknown as TracePayload);
+      }
       if ((m as { type: string }).type === 'recto:selection-shown') {
         const r = m as unknown as { shown: boolean; detail: string };
         onSelectionShown(r.shown, r.detail);
@@ -136,7 +143,7 @@ export function PageView({
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [onSelectElement, onRulesMatched, onFitMeasured, onApplied, onSelectionShown]);
+  }, [onSelectElement, onRulesMatched, onFitMeasured, onApplied, onSelectionShown, onTraced]);
 
   useEffect(() => {
     if (!ready || !measureFitFor) return;
@@ -255,6 +262,13 @@ export function PageView({
       { type: 'recto:force-hover', ...(forceHover ?? { elementId: null, decls: [] }) }, '*',
     );
   }, [forceHover, ready]);
+
+  useEffect(() => {
+    if (!ready || !traceRequest) return;
+    frameRef.current?.contentWindow?.postMessage(
+      { type: 'recto:trace', elementId: traceRequest.elementId, prop: traceRequest.prop }, '*',
+    );
+  }, [traceRequest, ready]);
 
   useEffect(() => {
     if (!ready || !selectedElementId) return;

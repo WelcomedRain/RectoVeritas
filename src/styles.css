@@ -849,3 +849,44 @@ button:disabled { cursor: default; opacity: 0.4; }
 .ver.on .ver-msg { font-weight: 600; }
 .ver.on .ver-tag { border-color: var(--color-accent); color: var(--color-accent-800); }
 .ver-tag.dim { color: var(--color-neutral-600); }
+
+/* ---- style trace ---- */
+
+/* "why?" — small, quiet, and present on every property, because the question
+   it answers is the one that comes up most: I changed it and nothing happened. */
+.why {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--color-divider);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-neutral-700);
+  cursor: pointer;
+}
+.why:hover { border-color: var(--color-neutral-600); color: var(--color-text); }
+
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  background: var(--color-neutral-100);
+  border-left: 2px solid var(--color-neutral-400);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.trace-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.trace-line.dim { color: var(--color-neutral-600); }
+.trace-line.dim .mono { text-decoration: line-through; }
+.trace-key {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-neutral-700);
+  flex: none;
+}
+.trace-from { color: var(--color-neutral-700); }
+/* Said when the ranking and the page disagree. A confident wrong explanation
+   would be worse than none, so this is deliberately prominent. */
+.trace-warn { color: var(--color-accent-800); }

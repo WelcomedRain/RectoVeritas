@@ -541,6 +541,82 @@ const BRIDGE = String.raw`
       }
     }
 
+    /**
+     * Everything that declares one property on one element.
+     *
+     * Browsers do not say which rule won, only what the answer is, so this
+     * gathers the candidates and the computed value and lets the app rank them
+     * and check its own ranking. Stylesheets from another origin throw on
+     * access; skipping them silently would make the trace quietly incomplete,
+     * so they are counted and reported.
+     */
+    if (m.type === 'recto:trace') {
+      var tel = document.querySelector('[data-recto-id="' + m.elementId + '"]');
+      if (!tel) {
+        parent.postMessage({ type: 'recto:traced', elementId: m.elementId, prop: m.prop,
+          computed: '', decls: [], unreadable: 0, missing: true }, '*');
+        return;
+      }
+      var decls = [], order = 0, unreadable = 0;
+
+      for (var si = 0; si < document.styleSheets.length; si++) {
+        var rules = null;
+        try { rules = document.styleSheets[si].cssRules; }
+        catch (errX) { unreadable++; continue; }
+        if (!rules) { unreadable++; continue; }
+
+        for (var ri = 0; ri < rules.length; ri++) {
+          var rule = rules[ri];
+          order++;
+          if (!rule.selectorText || !rule.style) continue;
+          var raw = rule.style.getPropertyValue(m.prop);
+          if (!raw) continue;
+
+          // A comma-separated selector is several rules in one coat. Weigh the
+          // branch that actually matches this element, not the whole list.
+          var branches = rule.selectorText.split(',');
+          var best = null;
+          for (var bi = 0; bi < branches.length; bi++) {
+            var br = branches[bi].trim();
+            if (!br) continue;
+            var hit = false;
+            try { hit = tel.matches(br); } catch (errY) { hit = false; }
+            if (hit) { best = br; break; }
+          }
+          if (!best) continue;
+
+          decls.push({
+            selector: best,
+            value: raw.trim(),
+            important: rule.style.getPropertyPriority(m.prop) === 'important',
+            order: order,
+            origin: document.styleSheets[si].href || 'the page stylesheet'
+          });
+        }
+      }
+
+      var inlineVal = tel.style ? tel.style.getPropertyValue(m.prop) : '';
+      if (inlineVal) {
+        decls.push({
+          selector: null,
+          value: inlineVal.trim(),
+          important: tel.style.getPropertyPriority(m.prop) === 'important',
+          order: ++order,
+          origin: 'this element'
+        });
+      }
+
+      parent.postMessage({
+        type: 'recto:traced',
+        elementId: m.elementId,
+        prop: m.prop,
+        computed: getComputedStyle(tel).getPropertyValue(m.prop).trim(),
+        decls: decls,
+        unreadable: unreadable,
+        missing: false
+      }, '*');
+    }
+
     if (m.type === 'recto:select-id') {
       var s = document.querySelector('[data-recto-id="' + m.elementId + '"]');
       if (selected) selected.removeAttribute('data-recto-selected');
