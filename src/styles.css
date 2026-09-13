@@ -817,3 +817,35 @@ button:disabled { cursor: default; opacity: 0.4; }
   color: var(--color-neutral-600);
   flex: none;
 }
+
+/* ---- published versions ---- */
+
+.ver {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.ver-main { min-width: 0; flex: 1; }
+.ver-msg { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ver-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-neutral-700);
+}
+.ver-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-divider);
+}
+/* What the site is serving right now, which is the anchor for reading the rest. */
+.ver.on .ver-msg { font-weight: 600; }
+.ver.on .ver-tag { border-color: var(--color-accent); color: var(--color-accent-800); }
+.ver-tag.dim { color: var(--color-neutral-600); }

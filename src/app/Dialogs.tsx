@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { StoredSource } from '../core/db';
 import type { PendingChange, Step } from '../core/publish';
 import type { Destination, DestinationId } from '../core/destination';
+import { canRestore, type Version } from '../core/history';
 import type { SyncState } from './store';
 import type { DeployObservation } from '../core/deploy';
 
@@ -401,6 +402,89 @@ export function PublishDialog({
           )}
         </div>
       )}
+    </Backdrop>
+  );
+}
+
+/**
+ * Every published version, and the way back to one.
+ *
+ * The safety of a separate dev site was never really about a second site — it
+ * was that GitHub keeps every version and makes it easy to revert. It does, and
+ * this editor has never shown one of them, so that safety was only available to
+ * someone willing to open a terminal.
+ *
+ * Going back is not a rewrite. It loads the old page as the working copy; you
+ * look at it, and publishing moves the site forward to it as a new commit. The
+ * record of what happened stays true, including the mistake.
+ */
+export function HistoryDialog({
+  versions, loading, error, queued, busySha, onRestore, onClose,
+}: {
+  versions: Version[];
+  loading: boolean;
+  error: string | null;
+  queued: number;
+  busySha: string | null;
+  onRestore: (v: Version) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Backdrop onClose={onClose} width={600}>
+      <div className="stack">
+        <div>
+          <h2>Everything you have published</h2>
+          <p style={{ marginTop: 6 }}>
+            Going back loads that version here so you can look at it. Nothing
+            reaches the site until you publish, and publishing adds a new
+            version rather than erasing this one.
+          </p>
+        </div>
+
+        {loading && <div className="label">Reading the history…</div>}
+        {error && <div className="banner-err">{error}</div>}
+
+        {!loading && !error && versions.length === 0 && (
+          <div className="empty">No published versions yet.</div>
+        )}
+
+        {versions.map((v) => {
+          const allowed = canRestore(v, queued);
+          return (
+            <div className={`ver ${v.current ? 'on' : ''}`} key={v.sha}>
+              <div className="ver-main">
+                <div className="ver-msg">{v.message}</div>
+                <div className="ver-meta">
+                  <span>{v.ago}</span>
+                  <span className="mono">{v.short}</span>
+                  {v.current && <span className="ver-tag">serving now</span>}
+                  {v.preview && <span className="ver-tag">preview only</span>}
+                  {!v.fromEditor && <span className="ver-tag dim">not from this editor</span>}
+                </div>
+              </div>
+              <button
+                className="btn"
+                disabled={!allowed.ok || busySha != null}
+                title={allowed.ok ? undefined : allowed.why}
+                onClick={() => onRestore(v)}
+              >
+                {busySha === v.sha ? 'Loading…' : 'Go back to this'}
+              </button>
+            </div>
+          );
+        })}
+
+        {queued > 0 && (
+          <div className="banner-err">
+            You have {queued} change{queued === 1 ? '' : 's'} waiting. Publish or undo
+            them first — going back would replace the page they are edits to.
+          </div>
+        )}
+
+        <div className="actions">
+          <button className="btn btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </Backdrop>
   );
 }

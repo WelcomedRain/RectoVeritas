@@ -86,3 +86,34 @@ describe('publishTarget', () => {
     expect(publishTarget('not a url')).toBeNull();
   });
 });
+
+describe('after going back to an older version', () => {
+  /**
+   * A restore replaces the page wholesale, so it produces no queued edits.
+   * Counting edits would report nothing waiting while the working copy holds
+   * something the site has never served — the same class of lie as the old
+   * "editing a copy" line that vanished when it mattered.
+   */
+  const restored = { ...base, dirty: 0, restored: { short: 'abc1234' } };
+
+  it('says which version is being shown rather than that nothing is waiting', () => {
+    expect(statusLine(restored).pending).toContain('abc1234');
+    expect(statusLine(restored).pending).not.toMatch(/matches the live site/i);
+  });
+
+  it('still names where publishing would send it', () => {
+    expect(statusLine(restored).pending).toContain('antheasolve.com');
+  });
+
+  it('still says you are editing a copy', () => {
+    expect(statusLine(restored).mode).toMatch(/copy/i);
+  });
+
+  it('still reports a connection problem', () => {
+    expect(statusLine({ ...restored, manualOffline: true }).connection?.tone).toBe('switched');
+  });
+
+  it('lets queued edits take precedence, since they are the live question', () => {
+    expect(statusLine({ ...restored, dirty: 2 }).pending).toContain('2 changes waiting');
+  });
+});

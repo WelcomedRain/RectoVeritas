@@ -13,6 +13,7 @@ import { outerRange } from '../core/htmlIndex';
 import { parseDeclarations } from '../core/css';
 import { bytesToBase64, imageSizeFromBase64 } from '../core/imageMeta';
 import { GitHub, parseRepoInput, type RepoRef } from '../core/github';
+import { describeVersions, type Version } from '../core/history';
 import { verifyHeadTags, type PendingChange } from '../core/publish';
 import { liveUrlFor, type DeployObservation } from '../core/deploy';
 import * as db from '../core/db';
@@ -78,6 +79,15 @@ export interface EditorState {
   lastPush: number | null;
   sync: SyncState;
   deploy: DeployObservation | null;
+  /**
+   * Set when the working copy is an older published version, loaded back.
+   *
+   * A restore produces no queued edits — it replaces the page wholesale — so
+   * without this the app would count zero changes and report that the working
+   * copy matches the live site, while holding something quite different. It
+   * also has to enable Publish, which is otherwise gated on there being edits.
+   */
+  restored: { sha: string; short: string; when: number } | null;
 }
 
 const PAGE_FILE_RE = /\.html?$/i;
@@ -87,6 +97,7 @@ export function useEditor() {
     ready: false,
     error: null,
     source: null,
+    restored: null,
     token: null,
     files: [],
     activeFile: null,
@@ -142,10 +153,10 @@ export function useEditor() {
         // Backfill for workspaces saved before the live URL was recorded. The
         // github.io form redirects to any custom domain and fetch follows it,
         // so this is correct even for a site on its own domain.
-        const restored = source && !source.liveUrl
+        const fixedSource = source && !source.liveUrl
           ? { ...source, liveUrl: liveUrlFor(undefined, source.owner, source.repo, source.path) }
           : source;
-        if (source && !source.liveUrl && restored) await db.setMeta('source', restored);
+        if (source && !source.liveUrl && fixedSource) await db.setMeta('source', fixedSource);
 
         const changes = new Map<string, PendingChange>();
         for (const p of patches) {
@@ -174,7 +185,7 @@ export function useEditor() {
           ...s,
           ready: true,
           token: token ?? null,
-          source: restored ?? null,
+          source: fixedSource ?? null,
           files: files ?? [],
           activeFile,
           bundle,
@@ -601,6 +612,60 @@ export function useEditor() {
     setState((s) => ({ ...s, selection: { targetId, elementId } }));
   }, []);
 
+  /**
+   * Every published version of the page, newest first.
+   *
+   * Read on demand rather than kept in state: it is only wanted when the
+   * question is asked, and it is the one thing here that is always better
+   * fetched than remembered.
+   */
+  const loadHistory = useCallback(async (): Promise<Version[]> => {
+    const s = stateRef.current;
+    if (!s.source || !s.token) return [];
+    const api = new GitHub(s.token);
+    const commits = await api.listCommits(s.source, s.source.path, 30);
+    return describeVersions(commits, { currentSha: commits[0]?.sha ?? null });
+  }, []);
+
+  /**
+   * Load an older published version back as the working copy.
+   *
+   * Deliberately not a publish, and deliberately not a rewrite of history: it
+   * puts the old page in front of you, and publishing it afterwards moves the
+   * site forward to it as a new commit. What happened stays in the record,
+   * mistake included.
+   */
+  const restoreVersion = useCallback(async (version: Version) => {
+    const s = stateRef.current;
+    if (!s.source || !s.token) throw new Error('Not connected.');
+    const api = new GitHub(s.token);
+    const text = await api.fileAtCommit(s.source, version.sha, s.source.path);
+    // Refuse to load something the editor cannot read, rather than replacing a
+    // working page with one that opens to an error.
+    const opened = openBundle(text);
+    if (!opened.bundle) throw new Error('That version is not a page this editor can open.');
+    await db.putFile({ path: s.source.path, text, sha: '' });
+    setState((cur) => ({
+      ...cur,
+      ...opened,
+      changes: new Map(),
+      selection: { targetId: null, elementId: null },
+      deploy: null,
+      restored: { sha: version.sha, short: version.short, when: version.when },
+    }));
+  }, []);
+
+  /** Put the working copy back to what the site is serving. */
+  const discardRestore = useCallback(async () => {
+    const s = stateRef.current;
+    if (!s.source || !s.token) return;
+    const api = new GitHub(s.token);
+    const head = await api.getBranchHead(s.source);
+    const text = await api.fileAtCommit(s.source, head.commitSha, s.source.path);
+    await db.putFile({ path: s.source.path, text, sha: '' });
+    setState((cur) => ({ ...cur, ...openBundle(text), changes: new Map(), restored: null }));
+  }, []);
+
   /** After a successful publish the edited values become the new baseline. */
   const commitPublished = useCallback(async (commitSha: string | null, fileText: string) => {
     await db.clearPatches();
@@ -608,7 +673,10 @@ export function useEditor() {
     await db.setMeta('lastPush', now);
     setState((s) => {
       if (s.source) void db.putFile({ path: s.source.path, text: fileText, sha: commitSha ?? '' });
-      return { ...s, changes: new Map(), lastPush: now, deploy: null, ...openBundle(fileText) };
+      return {
+        ...s, changes: new Map(), lastPush: now, deploy: null, restored: null,
+        ...openBundle(fileText),
+      };
     });
   }, []);
 
@@ -656,6 +724,7 @@ export function useEditor() {
     state, online, manualOffline, setManualOffline,
     connect, checkRemote, applyRemote, keepLocal, dismissSync, editElementHtml, replaceImage, applyOverride,
     edit, undo, select, commitPublished, disconnect, dropOrphans, setDeploy,
+    loadHistory, restoreVersion, discardRestore,
     valueOf, changeList, patch,
   };
 }

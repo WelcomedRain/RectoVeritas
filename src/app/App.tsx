@@ -4,7 +4,7 @@ import { PageView } from './PageView';
 import { CodeView } from './CodeView';
 import { WordsPanel, PicturesPanel, SelectionPanel } from './Panels';
 import { StylePanel, ThemePanel } from './StylePanel';
-import { SourceDialog, ConnectDialog, PublishDialog, SyncDialog } from './Dialogs';
+import { SourceDialog, ConnectDialog, PublishDialog, SyncDialog, HistoryDialog } from './Dialogs';
 import { FileText, Image as ImageIcon } from './icons';
 import { publish, type Step, type PublishResult } from '../core/publish';
 import { verifyDeployment } from '../core/deploy';
@@ -16,6 +16,7 @@ import { noteFor, summarise, type PreviewAck } from './previewable';
 import { statusLine } from './status';
 import { destinationsFor, type DestinationId } from '../core/destination';
 import { ancestryOf, enclosingBlock } from '../core/ancestry';
+import type { Version } from '../core/history';
 import { reportFit, makeItCover, makeItFitByHeight, type FitMeasurement, type SweepPoint } from '../core/fit';
 
 type Mode = 'page' | 'split' | 'code';
@@ -28,6 +29,30 @@ export function App() {
   const [mode, setMode] = useState<Mode>('page');
   const [tab, setTab] = useState<Tab>('words');
   const [showSource, setShowSource] = useState(false);
+  const [hist, setHist] = useState<{
+    open: boolean; loading: boolean; error: string | null;
+    versions: Version[]; busySha: string | null;
+  }>({ open: false, loading: false, error: null, versions: [], busySha: null });
+
+  const openHistory = async () => {
+    setHist({ open: true, loading: true, error: null, versions: [], busySha: null });
+    try {
+      const versions = await ed.loadHistory();
+      setHist((h) => ({ ...h, loading: false, versions }));
+    } catch (e) {
+      setHist((h) => ({ ...h, loading: false, error: (e as Error).message }));
+    }
+  };
+
+  const doRestore = async (v: Version) => {
+    setHist((h) => ({ ...h, busySha: v.sha, error: null }));
+    try {
+      await ed.restoreVersion(v);
+      setHist((h) => ({ ...h, open: false, busySha: null }));
+    } catch (e) {
+      setHist((h) => ({ ...h, busySha: null, error: (e as Error).message }));
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -393,9 +418,11 @@ export function App() {
         destination,
         changes: ed.changeList,
         targets: state.targets!.byId,
-        message: destination.isLive
-          ? `Update site copy (${n} change${n === 1 ? '' : 's'})`
-          : `Stage ${n} change${n === 1 ? '' : 's'} for review`,
+        message: n === 0 && state.restored
+          ? `Go back to version ${state.restored.short}`
+          : destination.isLive
+            ? `Update site copy (${n} change${n === 1 ? '' : 's'})`
+            : `Stage ${n} change${n === 1 ? '' : 's'} for review`,
         online,
       },
       (steps) => setPub((p) => ({ ...p, steps })),
@@ -460,6 +487,7 @@ export function App() {
     publishTo: destinations?.[pub.open ? pub.dest : defaultDest].url,
     deploy: state.deploy,
     lastPush: state.lastPush,
+    restored: state.restored,
   });
   const idx = state.index;
 
@@ -504,8 +532,16 @@ export function App() {
         </button>
 
         <button
+          className="btn btn-ghost"
+          onClick={() => void openHistory()}
+          title="Every version you have published, and the way back to one"
+        >
+          History
+        </button>
+
+        <button
           className="btn btn-primary"
-          disabled={dirty === 0}
+          disabled={dirty === 0 && !state.restored}
           onClick={() => setPub({
             open: true, phase: 'review', steps: [], outcome: null, error: null,
             dest: defaultDest,
@@ -820,6 +856,18 @@ export function App() {
         }}
         onClose={ed.dismissSync}
       />
+
+      {hist.open && (
+        <HistoryDialog
+          versions={hist.versions}
+          loading={hist.loading}
+          error={hist.error}
+          queued={dirty}
+          busySha={hist.busySha}
+          onRestore={(v) => void doRestore(v)}
+          onClose={() => setHist((h) => ({ ...h, open: false }))}
+        />
+      )}
 
       {pub.open && (
         <PublishDialog

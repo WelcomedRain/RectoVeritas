@@ -143,6 +143,54 @@ export class GitHub {
       }));
   }
 
+  /**
+   * Commits that touched one path, newest first.
+   *
+   * Asking by path rather than listing the branch: the question a person has
+   * is "what happened to my page", and a commit that changed the licence file
+   * is not an answer to it.
+   */
+  async listCommits(
+    ref: RepoRef,
+    path: string,
+    limit = 30,
+  ): Promise<{ sha: string; when: number; message: string; author: string }[]> {
+    const r = await this.call<{
+      sha: string;
+      commit: { message: string; committer: { date: string }; author: { name: string } };
+    }[]>(
+      `/repos/${ref.owner}/${ref.repo}/commits`
+      + `?sha=${encodeURIComponent(ref.branch)}&path=${encodeURIComponent(path)}`
+      + `&per_page=${Math.min(limit, 100)}`,
+    );
+    return r.map((c) => ({
+      sha: c.sha,
+      when: Date.parse(c.commit.committer.date),
+      message: c.commit.message.split(String.fromCharCode(10))[0],
+      author: c.commit.author?.name ?? '',
+    }));
+  }
+
+  /**
+   * One file as it stood at one commit.
+   *
+   * Through the tree and the blob API rather than the contents API, which
+   * refuses anything over a megabyte — and this page is two.
+   */
+  async fileAtCommit(ref: RepoRef, commitSha: string, path: string): Promise<string> {
+    const commit = await this.call<{ tree: { sha: string } }>(
+      `/repos/${ref.owner}/${ref.repo}/git/commits/${commitSha}`,
+    );
+    const entry = (await this.listTree(ref, commit.tree.sha))
+      .find((f) => f.path === path && f.type === 'file');
+    if (!entry) {
+      throw new GitHubError(
+        `${path} did not exist at that version.`, 404, 'not in tree',
+      );
+    }
+    return this.getBlobText(ref, entry.sha);
+  }
+
   /** Raw bytes of a blob. Base64 is what the API gives us. */
   async getBlob(ref: RepoRef, sha: string): Promise<Uint8Array> {
     const r = await this.call<{ content: string; encoding: string }>(

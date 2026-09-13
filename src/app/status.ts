@@ -40,6 +40,18 @@ export function publishTarget(url: string | null | undefined): string | null {
   } catch { return null; }
 }
 
+/**
+ * The trap this separates: `online` was one flag standing for two unrelated
+ * things. Flipping the header switch for a test and forgetting produced
+ * "Offline" with a perfectly good connection, and nothing on screen could tell
+ * you which of the two you were looking at.
+ */
+function connectionOf(o: { manualOffline: boolean; networkUp: boolean }): StatusLine['connection'] {
+  if (o.manualOffline) return { text: 'Offline — you switched this on', tone: 'switched' };
+  if (!o.networkUp) return { text: 'Offline — no connection, so nothing can publish', tone: 'lost' };
+  return null;
+}
+
 export function statusLine(o: {
   dirty: number;
   networkUp: boolean;
@@ -48,6 +60,8 @@ export function statusLine(o: {
   publishTo?: string | null;
   deploy: DeployObservation | null;
   lastPush: number | null;
+  /** Set when the working copy is an older version loaded back. */
+  restored?: { short: string } | null;
 }): StatusLine {
   // Stated in the present tense and permanently, because it is permanently
   // true. It used to appear only while changes were queued, which implied the
@@ -55,6 +69,19 @@ export function statusLine(o: {
   const mode = 'Editing a copy on this computer';
 
   const host = publishTarget(o.publishTo);
+  // A restore replaces the page wholesale and so produces no edits. Counting
+  // them would say nothing is waiting while the working copy holds something
+  // the site has never served.
+  if (o.dirty === 0 && o.restored) {
+    return {
+      mode,
+      pending: host
+        ? `Showing version ${o.restored.short} · Publish sends it to ${host}`
+        : `Showing version ${o.restored.short}, which the site is not serving`,
+      connection: connectionOf(o),
+    };
+  }
+
   const one = o.dirty === 1;
   const changes = `${o.dirty} change${one ? '' : 's'} waiting`;
   const pending = o.dirty > 0
@@ -65,12 +92,5 @@ export function statusLine(o: {
   // things. Flipping the header switch for a test and forgetting produced
   // "Offline" with a perfectly good connection, and nothing on screen could
   // tell you which of the two you were looking at.
-  let connection: StatusLine['connection'] = null;
-  if (o.manualOffline) {
-    connection = { text: 'Offline — you switched this on', tone: 'switched' };
-  } else if (!o.networkUp) {
-    connection = { text: 'Offline — no connection, so nothing can publish', tone: 'lost' };
-  }
-
-  return { mode, pending, connection };
+  return { mode, pending, connection: connectionOf(o) };
 }
