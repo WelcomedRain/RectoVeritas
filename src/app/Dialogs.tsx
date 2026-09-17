@@ -323,8 +323,10 @@ export function PublishDialog({
                   <span className="label">{c.label}</span>
                   <span className="mono" style={{ fontSize: 11, marginLeft: 'auto', color: 'var(--color-neutral-700)' }}>{c.file}</span>
                 </div>
-                <div className="from">{c.liveValue || '(empty)'}</div>
-                <div className="to">{c.nextValue || '(empty)'}</div>
+                {/* Labelled, like the out-of-sync rows. Two values with nothing
+                    naming them left the reader to remember which edit this was. */}
+                <div className="from"><span className="side">Now</span>{c.liveValue || '(empty)'}</div>
+                <div className="to"><span className="side">Will be</span>{c.nextValue || '(empty)'}</div>
               </div>
             ))}
           </div>

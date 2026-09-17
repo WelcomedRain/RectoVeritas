@@ -558,8 +558,35 @@ button:disabled { cursor: default; opacity: 0.4; }
 
 .change { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--color-divider); }
 .change .head { display: flex; gap: 8px; align-items: baseline; }
-.change .from { background: var(--color-accent-100); color: var(--color-accent-800); padding: 6px 8px; font-size: 12px; }
-.change .to { background: var(--color-neutral-200); padding: 6px 8px; font-size: 12px; }
+/* The accent means one thing in this dialog: the destination you have chosen.
+   It used to mean that at the top and "the value being replaced" at the bottom,
+   so the loudest colour on the screen pointed at the thing least worth reading.
+   Amber is what unpublished work is marked with everywhere else — the footer,
+   the header, the out-of-sync rows — so the incoming value carries it here too,
+   and the value it replaces goes quiet. */
+.change .from {
+  background: var(--color-neutral-200);
+  color: var(--color-neutral-700);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.change .to {
+  background: var(--color-wait-100);
+  color: var(--color-wait-800);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.change .side {
+  display: inline-block;
+  min-width: 56px;
+  margin-right: 8px;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+}
 
 .step { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; }
 .step .mark { width: 10px; height: 10px; flex: none; background: var(--color-neutral-300); position: relative; top: 2px; }
