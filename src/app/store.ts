@@ -110,6 +110,15 @@ export interface EditorState {
   /** Null until GitHub has actually been asked. Never assumed. */
   remote: RemoteCheck | null;
   /**
+   * Assets replaced since the last sync, by uuid.
+   *
+   * Tracked rather than inferred. An image replacement writes into the page
+   * file and queues no edit, so the only other way to report it is "something
+   * changed" — which tells you less than the app knows. Persisted, because the
+   * fact survives a reload and so must the ability to say it.
+   */
+  replacedImages: string[];
+  /**
    * The working copy differs from the baseline in ways that are not queued
    * patches — a replaced image, or an older version loaded back.
    *
@@ -140,6 +149,7 @@ export function useEditor() {
     error: null,
     source: null,
     remote: null,
+    replacedImages: [],
     localModified: false,
     restored: null,
     token: null,
@@ -184,12 +194,13 @@ export function useEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const [token, source, files, patches, lastPush] = await Promise.all([
+        const [token, source, files, patches, lastPush, replacedImages] = await Promise.all([
           db.getToken(),
           db.getMeta<db.StoredSource>('source'),
           db.getMeta<RepoFileEntry[]>('files'),
           db.allPatches(),
           db.getMeta<number>('lastPush'),
+          db.getMeta<string[]>('replacedImages'),
         ]);
 
         // Drop records written by an older schema rather than letting an
@@ -248,6 +259,9 @@ export function useEditor() {
           health,
           changes,
           localModified,
+          // A list that outlived the divergence it described would name images
+          // that are already published.
+          replacedImages: localModified ? (replacedImages ?? []) : [],
           lastPush: lastPush ?? null,
         }));
       } catch (e) {
@@ -317,6 +331,7 @@ export function useEditor() {
           source,
           files,
           localModified: false,
+          replacedImages: [],
           activeFile: page.path,
           ...opened,
           selection: { targetId: null, elementId: null },
@@ -459,7 +474,7 @@ export function useEditor() {
         ? reconcile(opened.health, s.changes, opened.targets, opened.bundle!.template)
         : opened.health;
       return {
-        ...s, source, ...opened, health, localModified: false,
+        ...s, source, ...opened, health, localModified: false, replacedImages: [],
         // We have just written GitHub's exact blob as the working copy and
         // adopted its sha as the baseline, so this is in sync by construction.
         // Without it the header went on saying "site has changed" after the
@@ -492,7 +507,7 @@ export function useEditor() {
     // stored-flag mistake in a new place.
     const localModified = sha ? (await gitBlobSha(kept.text)) !== sha : false;
     setState((cur) => ({
-      ...cur, ...opened, localModified, restored: null,
+      ...cur, ...opened, localModified, restored: null, replacedImages: [],
     }));
   }, []);
 
@@ -654,7 +669,13 @@ export function useEditor() {
     // as "the site has changed".
     const base = await db.getFile(s.source.path);
     await db.putFile({ path: s.source.path, text: nextFile, sha: base?.sha ?? '' });
-    setState((cur) => ({ ...cur, ...openBundle(nextFile), localModified: true }));
+    setState((cur) => {
+      const replacedImages = cur.replacedImages.includes(uuid)
+        ? cur.replacedImages
+        : [...cur.replacedImages, uuid];
+      void db.setMeta('replacedImages', replacedImages);
+      return { ...cur, ...openBundle(nextFile), localModified: true, replacedImages };
+    });
 
     const differs = before && (before.width !== after.width || before.height !== after.height);
     return {
@@ -794,6 +815,7 @@ export function useEditor() {
     setState((cur) => ({
       ...cur,
       localModified: true,
+      replacedImages: [],
       ...opened,
       changes: new Map(),
       selection: { targetId: null, elementId: null },
@@ -812,7 +834,8 @@ export function useEditor() {
     // Head's own bytes, so this genuinely is the baseline again.
     await db.putFile({ path: s.source.path, text, sha: await gitBlobSha(text) });
     setState((cur) => ({
-      ...cur, ...openBundle(text), changes: new Map(), restored: null, localModified: false,
+      ...cur, ...openBundle(text), changes: new Map(), restored: null,
+      localModified: false, replacedImages: [],
     }));
   }, []);
 
@@ -833,6 +856,7 @@ export function useEditor() {
         // is an observation, not an assumption.
         remote: { checkedAt: now, inSync: true },
         localModified: false,
+        replacedImages: [],
         ...openBundle(fileText),
       };
     });

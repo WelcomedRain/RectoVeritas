@@ -585,6 +585,7 @@ export function App() {
   const headBad = !!state.health && !state.health.headTagsInHead;
   const orphans = state.health?.orphanedChanges ?? 0;
   const applied = state.health?.appliedChanges ?? 0;
+  const publishable = dirty + state.replacedImages.length;
   const previewNote = mode !== 'code' && !!preview.headline;
   const hasNotices = headBad || previewNote || orphans > 0 || applied > 0;
 
@@ -706,11 +707,12 @@ export function App() {
           })}
         >
           Publish changes
-          {/* A replaced image queues no edit, so there is no number to show —
-              but showing nothing read as "nothing to publish" while the header
-              and footer both said otherwise. A mark says "something, uncounted". */}
-          {dirty > 0 && <span className="badge">{dirty}</span>}
-          {dirty === 0 && state.localModified && <span className="badge">&bull;</span>}
+          {/* Replaced images are counted here with the queued edits: they are
+              changes like any other to whoever made them, and the app knows how
+              many. The mark is only for the case it genuinely cannot count —
+              a page file replaced wholesale by a restore. */}
+          {publishable > 0 && <span className="badge">{publishable}</span>}
+          {publishable === 0 && state.localModified && <span className="badge">&bull;</span>}
         </button>
       </header>
 
@@ -1065,6 +1067,7 @@ export function App() {
           onDest={(d) => setPub((p) => ({ ...p, dest: d }))}
           everPublishedLive={state.lastPush !== null}
           unlisted={state.localModified}
+          images={state.replacedImages.length}
           onPublish={doPublish}
           onClose={() => setPub({
             open: false, phase: 'review', steps: [], outcome: null, error: null,

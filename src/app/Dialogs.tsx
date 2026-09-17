@@ -246,7 +246,7 @@ export function SyncDialog({
 
 export function PublishDialog({
   phase, changes, steps, outcome, error, online, deploy,
-  destinations, dest, onDest, everPublishedLive, unlisted, onPublish, onClose,
+  destinations, dest, onDest, everPublishedLive, images, unlisted, onPublish, onClose,
 }: {
   phase: 'review' | 'running' | 'done';
   changes: PendingChange[];
@@ -267,6 +267,8 @@ export function PublishDialog({
    * ship one.
    */
   unlisted: boolean;
+  /** Images replaced since the last sync. Counted, because the app knows. */
+  images: number;
   onPublish: () => void;
   onClose: () => void;
 }) {
@@ -280,11 +282,18 @@ export function PublishDialog({
         <div className="stack">
           <div>
             <h2>Publish your changes</h2>
+            {/* Each kind named and counted separately, rather than one total that
+                would have to explain itself. An image replacement is a change
+                like any other to the person who made it; it is only unusual in
+                here, where it has no before-and-after to show. */}
             <p style={{ marginTop: 6 }}>
-              {changes.length > 0
-                ? `${changes.length} change${changes.length === 1 ? '' : 's'}`
-                : 'A change to the page file'}
-              {changes.length > 0 && unlisted && ', and a change to the page file,'}
+              {[
+                changes.length > 0
+                  ? `${changes.length} change${changes.length === 1 ? '' : 's'}`
+                  : null,
+                images > 0 ? `${images} replaced image${images === 1 ? '' : 's'}` : null,
+                unlisted && images === 0 ? 'a version loaded back' : null,
+              ].filter(Boolean).join(' and ') || 'Nothing'}
               {target ? <> will go to <b>{target.url}</b></> : ' will be published'}.
             </p>
           </div>
@@ -344,11 +353,19 @@ export function PublishDialog({
 
           {unlisted && (
             <div className="change">
-              <div className="head"><span className="label">Not listed above</span></div>
+              <div className="head">
+                <span className="label">
+                  {images > 0
+                    ? `${images} replaced image${images === 1 ? '' : 's'}`
+                    : 'A version loaded back'}
+                </span>
+              </div>
               <div className="from" style={{ background: 'transparent', padding: '2px 0' }}>
-                A replaced image, or a version loaded back from History, is written
-                straight into the page file rather than queued as an edit. It has no
-                before-and-after to show here, and it will publish with the rest.
+                {images > 0
+                  ? 'Written straight into the page file rather than queued as an edit, '
+                    + 'so there is no before-and-after to show here. It publishes with the rest.'
+                  : 'The page file was replaced wholesale, so there are no individual edits '
+                    + 'to list. It publishes with the rest.'}
               </div>
             </div>
           )}
