@@ -615,14 +615,31 @@ export function DriftDialog({
                   <span className="drift-tag">{d.tag}</span>
                   <span className="drift-label">{d.label}</span>
                 </div>
+                {/* Every row says which side it is. Colour alone did not: it
+                    encoded the answer without stating it, so the one question
+                    the dialog exists to answer — which of these two am I
+                    keeping — had to be inferred. The words match the buttons
+                    below verbatim. */}
                 {d.kind === 'changed' && (
                   <>
-                    <div className="drift-mine">{d.mine}</div>
-                    <div className="drift-theirs">{d.theirs}</div>
+                    <div className="drift-mine">
+                      <span className="drift-side">My copy</span>{d.mine}
+                    </div>
+                    <div className="drift-theirs">
+                      <span className="drift-side">The site</span>{d.theirs}
+                    </div>
                   </>
                 )}
-                {d.kind === 'only-mine' && <div className="drift-mine">Only in your copy: {d.mine}</div>}
-                {d.kind === 'only-theirs' && <div className="drift-theirs">Only on the site: {d.theirs}</div>}
+                {d.kind === 'only-mine' && (
+                  <div className="drift-mine">
+                    <span className="drift-side">My copy only</span>{d.mine}
+                  </div>
+                )}
+                {d.kind === 'only-theirs' && (
+                  <div className="drift-theirs">
+                    <span className="drift-side">The site only</span>{d.theirs}
+                  </div>
+                )}
               </div>
             ))}
 
