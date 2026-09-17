@@ -330,12 +330,18 @@ export function PublishDialog({
           </div>
 
           <div className="actions">
+            {/* The button names its target. The selector above it already did,
+                but the destination resets to Preview every time this dialog
+                opens — it stands down only after a live publish has succeeded,
+                which cannot happen while it is being missed. A whole evening
+                went to publishing at Preview while checking the live page, with
+                nothing on the button that was pressed to say so. */}
             <button
               className="btn btn-primary"
               disabled={phase !== 'review'}
               onClick={onPublish}
             >
-              Publish
+              {target ? `Publish to ${target.label}` : 'Publish'}
             </button>
             <button className="btn btn-ghost" onClick={onClose}>Not yet</button>
           </div>
