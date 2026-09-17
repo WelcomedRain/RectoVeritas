@@ -146,6 +146,30 @@ export function deployLabel(o: DeployObservation | null, lastPush: number | null
   }
 }
 
+/**
+ * The same states as `deployLabel`, as a judgement rather than a sentence.
+ *
+ * Deliberately next to the label so the two cannot drift: a state that gains a
+ * wording here has to gain a colour in the same edit, and the exhaustive
+ * switch makes the compiler say so.
+ *
+ * 'unknown' is its own tone on purpose. A push we could not verify is not the
+ * same as copies that match, and colouring it green would be the app asserting
+ * something it did not observe.
+ */
+export function deployTone(
+  o: DeployObservation | null,
+  lastPush: number | null,
+): 'match' | 'waiting' | 'unknown' {
+  if (!o) return lastPush ? 'unknown' : 'match';
+  switch (o.state) {
+    case 'verified': return 'match';
+    case 'stale': return 'waiting';
+    case 'pending': return 'waiting';
+    case 'unknown': return 'unknown';
+  }
+}
+
 /** Derive the public URL from a CNAME file, falling back to Pages defaults. */
 export function liveUrlFor(
   cnameFile: string | undefined,

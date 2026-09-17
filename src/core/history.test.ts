@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { describeVersions, relativeTime, canRestore, type Commit } from './history';
+import {
+  describeVersions, relativeTime, canRestore, describeSetAside, setAsideKeyFor,
+  type Commit,
+} from './history';
 
 const NOW = Date.parse('2026-09-13T12:00:00Z');
 const at = (iso: string, message: string, sha = message.slice(0, 7).padEnd(40, '0')): Commit =>
@@ -101,5 +104,36 @@ describe('canRestore', () => {
   it('counts one change in the singular', () => {
     const r = canRestore(older, 1);
     if (!r.ok) expect(r.why).toMatch(/1 change waiting/);
+  });
+});
+
+describe('set-aside working copies', () => {
+  /**
+   * These were written under a key nothing ever read — the safety they were
+   * meant to be existed only for someone willing to open devtools.
+   */
+  it('reads the time back out of the key that stores it', () => {
+    const when = Date.parse('2026-09-16T10:00:00Z');
+    const key = setAsideKeyFor('index.html', when);
+    const [v] = describeSetAside([key], when + 60_000);
+    expect(v.when).toBe(when);
+    expect(v.ago).toMatch(/minute/);
+  });
+
+  it('ignores everything that is not a set-aside copy', () => {
+    expect(describeSetAside(['index.html', 'assets/logo.png'])).toHaveLength(0);
+  });
+
+  it('puts the newest first, which is the one worth reaching for', () => {
+    const keys = [
+      setAsideKeyFor('index.html', 1000),
+      setAsideKeyFor('index.html', 3000),
+      setAsideKeyFor('index.html', 2000),
+    ];
+    expect(describeSetAside(keys).map((v) => v.when)).toEqual([3000, 2000, 1000]);
+  });
+
+  it('drops a key whose timestamp is not one', () => {
+    expect(describeSetAside(['__displaced/not-a-time/index.html'])).toHaveLength(0);
   });
 });

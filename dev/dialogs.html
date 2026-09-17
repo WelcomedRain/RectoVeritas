@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dialog harness</title>
+<style>
+  body { margin: 0; font: 13px/1.5 system-ui; }
+  .bar { padding: 10px 14px; border-bottom: 1px solid #ccc; display: flex; gap: 8px; align-items: center; }
+  .bar b { font-weight: 700; }
+</style>
+<div class="bar">
+  <b>Dialog harness</b>
+  <span>Renders dialogs that only appear when GitHub and the working copy disagree —
+  a state that cannot be staged locally, so this is the only place to look at them.
+  The differences below are real: the site export compared against a mutated copy of itself.</span>
+</div>
+<div id="root"></div>
+
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import '/src/styles.css';
+import { DriftDialog } from '/src/app/Dialogs.tsx';
+import { parseBundle, serializeBundle } from '/src/core/bundle.ts';
+import { indexTemplate } from '/src/core/htmlIndex.ts';
+import { compareBundles } from '/src/core/compare.ts';
+
+const text = await fetch('/__sample.html').then((r) => r.text());
+const b = parseBundle(text);
+const idx = indexTemplate(b.template);
+
+// Change a handful of real strings, the way something else editing the site would.
+let template = b.template;
+const picks = idx.strings
+  .filter((s) => s.kind === 'text' && s.value.trim().length > 14)
+  .slice(0, 3)
+  .sort((x, y) => y.start - x.start);
+for (const p of picks) {
+  template = template.slice(0, p.start) + 'CHANGED ON THE SITE' + template.slice(p.end);
+}
+const key = Object.keys(b.manifest)[0];
+const manifest = { ...b.manifest, [key]: { ...b.manifest[key], data: 'AAAA' } };
+const theirs = serializeBundle(b, { template, manifest });
+
+const comparison = compareBundles(text, theirs);
+console.log('differences', comparison);
+
+createRoot(document.getElementById('root')).render(
+  React.createElement(DriftDialog, {
+    dirty: 2,
+    comparison,
+    loading: false,
+    error: null,
+    busy: false,
+    onTakeTheirs: () => console.log('take theirs'),
+    onKeepMine: () => console.log('keep mine'),
+    onClose: () => console.log('close'),
+  }),
+);
+</script>

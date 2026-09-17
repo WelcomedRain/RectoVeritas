@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor } from './store';
 import { PageView } from './PageView';
 import { CodeView } from './CodeView';
 import { WordsPanel, PicturesPanel, SelectionPanel } from './Panels';
 import { StylePanel, ThemePanel } from './StylePanel';
-import { SourceDialog, ConnectDialog, PublishDialog, SyncDialog, HistoryDialog } from './Dialogs';
-import { FileText, Image as ImageIcon } from './icons';
+import { SourceDialog, ConnectDialog, PublishDialog, SyncDialog, HistoryDialog, DriftDialog } from './Dialogs';
 import { publish, type Step, type PublishResult } from '../core/publish';
 import { verifyDeployment } from '../core/deploy';
 import { useRegisterSW } from 'virtual:pwa-register/react';
@@ -13,11 +12,12 @@ import * as db from '../core/db';
 import { outerRange, type StringEntry } from '../core/htmlIndex';
 import type { LiveEdit } from './preview';
 import { noteFor, summarise, type PreviewAck } from './previewable';
-import { statusLine } from './status';
+import { statusLine, siteState, SITE_WORD } from './status';
 import { destinationsFor, type DestinationId } from '../core/destination';
 import { ancestryOf, enclosingBlock } from '../core/ancestry';
-import type { Version } from '../core/history';
+import type { Version, SetAside } from '../core/history';
 import { readTrace, type TracePayload, type TraceResult } from './trace';
+import type { Comparison } from '../core/compare';
 import { reportFit, makeItCover, makeItFitByHeight, type FitMeasurement, type SweepPoint } from '../core/fit';
 
 type Mode = 'page' | 'split' | 'code';
@@ -32,12 +32,16 @@ export function App() {
   const [showSource, setShowSource] = useState(false);
   const [hist, setHist] = useState<{
     open: boolean; loading: boolean; error: string | null;
-    versions: Version[]; busySha: string | null;
-  }>({ open: false, loading: false, error: null, versions: [], busySha: null });
+    versions: Version[]; setAside: SetAside[]; busySha: string | null;
+  }>({ open: false, loading: false, error: null, versions: [], setAside: [], busySha: null });
 
   const openHistory = async () => {
-    setHist({ open: true, loading: true, error: null, versions: [], busySha: null });
+    setHist({ open: true, loading: true, error: null, versions: [], setAside: [], busySha: null });
     try {
+      // The set-aside copies are local, so they are worth showing even if the
+      // GitHub half of the list fails.
+      const setAside = await ed.loadSetAside();
+      setHist((h) => ({ ...h, setAside }));
       const versions = await ed.loadHistory();
       setHist((h) => ({ ...h, loading: false, versions }));
     } catch (e) {
@@ -54,9 +58,18 @@ export function App() {
       setHist((h) => ({ ...h, busySha: null, error: (e as Error).message }));
     }
   };
+  const doRestoreSetAside = async (v: SetAside) => {
+    setHist((h) => ({ ...h, busySha: v.key, error: null }));
+    try {
+      await ed.restoreSetAside(v.key);
+      setHist((h) => ({ ...h, open: false, busySha: null }));
+    } catch (e) {
+      setHist((h) => ({ ...h, busySha: null, error: (e as Error).message }));
+    }
+  };
+
   const [busy, setBusy] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
-  const [syncBusy, setSyncBusy] = useState(false);
   const [hoverHeld, setHoverHeld] = useState(false);
 
   /**
@@ -125,6 +138,57 @@ export function App() {
   );
 
   useEffect(() => { setTraces({}); setTraceReq(null); }, [state.selection.elementId]);
+
+  /**
+   * Ask GitHub, once, on open. Observation only — see `observeRemote`.
+   *
+   * Guarded by a ref rather than by the dependency list: `online` and the
+   * token both settle after the first render, and without the guard this
+   * fires again every time one of them does.
+   */
+  const [drift, setDrift] = useState<{
+    open: boolean; comparison: Comparison | null; loading: boolean; error: string | null; busy: boolean;
+  }>({ open: false, comparison: null, loading: false, error: null, busy: false });
+
+  /**
+   * Raise the warning when the on-open look found the site had moved, and only
+   * then go and read the whole file to say what differs. The cheap check
+   * decides whether the expensive one is worth doing.
+   */
+  /**
+   * One observation, one warning.
+   *
+   * `handledAt` records the `checkedAt` this has already reacted to, and does
+   * both jobs at once: it stops the effect re-entering on every render, and it
+   * is what makes the dialog dismissable. A plain `drift.open` guard cannot do
+   * either — it is itself state, so closing the dialog re-runs the effect and
+   * reopens it, re-reading 2 MB each time.
+   *
+   * `ed` is deliberately not a dependency. `useEditor` returns a fresh object
+   * every render, so depending on it runs this on every render — which is
+   * exactly the loop `handledAt` now also prevents.
+   */
+  const handledAt = useRef<number | null>(null);
+  useEffect(() => {
+    if (!state.remote || state.remote.inSync) return;
+    if (handledAt.current === state.remote.checkedAt) return;
+    handledAt.current = state.remote.checkedAt;
+    setDrift({ open: true, comparison: null, loading: true, error: null, busy: false });
+    void ed.describeDrift()
+      .then((comparison) => setDrift((d) => ({ ...d, comparison, loading: false })))
+      .catch((e: Error) => setDrift((d) => ({ ...d, loading: false, error: e.message })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.remote]);
+
+  const dismissDrift = () => setDrift((d) => ({ ...d, open: false }));
+
+  const looked = useRef(false);
+  useEffect(() => {
+    if (looked.current || !state.ready || !state.source || !state.token || !online) return;
+    looked.current = true;
+    void ed.observeRemote();
+  }, [state.ready, state.source, state.token, online, ed]);
+
 
   const selectedEntry = state.selection.targetId
     ? state.index?.stringsById.get(state.selection.targetId) ?? null
@@ -422,8 +486,22 @@ export function App() {
     ed.edit(id, v);
   }, [ed, state.targets]);
 
+  /**
+   * Guards against a second publish starting while the first is in flight.
+   *
+   * A ref, not rendered state: `phase: 'running'` only takes effect after a
+   * re-render, so a second click landing in that window used to start a second
+   * run. Both then read the same branch head, the first moved the branch, and
+   * the second was refused with "Update is not a fast forward" — after the
+   * change had already gone live. The user saw a failure for a publish that
+   * had succeeded.
+   */
+  const publishing = useRef(false);
+
   const doPublish = async () => {
+    if (publishing.current) return;
     if (!state.source || !state.targets || !fileText || !destinations) return;
+    publishing.current = true;
     const destination = destinations[pub.dest];
     setPub((p) => ({ ...p, phase: 'running', steps: [], outcome: null, error: null }));
     const n = ed.changeList.length;
@@ -444,7 +522,15 @@ export function App() {
       },
       (steps) => setPub((p) => ({ ...p, steps })),
     );
+    publishing.current = false;
     setPub((p) => ({ ...p, phase: 'done', outcome: result.outcome, error: result.error ?? null, steps: result.steps }));
+
+    // A failure while sending leaves the app's picture of the site unreliable:
+    // the commit may have landed and the queue still looks unpublished. Go and
+    // look rather than leave the header asserting the last thing it knew.
+    if (result.outcome === 'failed' && result.steps.some((s) => s.state === 'failed' && s.id === 'pushed')) {
+      void ed.observeRemote();
+    }
 
     if (result.outcome === 'pushed' && result.fileText) {
       // THE RULE. A preview publish does not touch the live page, so the edits
@@ -481,6 +567,27 @@ export function App() {
 
   const dirty = ed.changeList.length;
 
+  /**
+   * The notices, and nothing else.
+   *
+   * The left column used to carry a file list, two counts and a green tick.
+   * The list was the repository tree, not the working copy, and only one of
+   * its rows named a file the app had. The counts restated what the Words and
+   * Pictures tabs already say, and could not move in response to an edit —
+   * changing a word replaces a string's value, replacing an image swaps the
+   * bytes under the same manifest entry, so both totals stay put. The tick
+   * mirrored a gate `publish()` enforces anyway.
+   *
+   * What survives is the two things that are about this session and are
+   * recorded nowhere else, plus the head check in the only state worth hearing
+   * about: the one that will stop a publish.
+   */
+  const headBad = !!state.health && !state.health.headTagsInHead;
+  const orphans = state.health?.orphanedChanges ?? 0;
+  const applied = state.health?.appliedChanges ?? 0;
+  const previewNote = mode !== 'code' && !!preview.headline;
+  const hasNotices = headBad || previewNote || orphans > 0 || applied > 0;
+
   const destinations = state.source
     ? destinationsFor(state.source.path, state.source.liveUrl)
     : null;
@@ -495,8 +602,15 @@ export function App() {
    */
   const defaultDest: DestinationId = state.lastPush ? 'live' : 'preview';
 
+  const site = siteState({
+    dirty, remote: state.remote, restored: state.restored,
+    localModified: state.localModified,
+  });
+
   const status = statusLine({
     dirty,
+    remote: state.remote,
+    localModified: state.localModified,
     networkUp: state.online,
     manualOffline: ed.manualOffline,
     // While the dialog is open it is the authority on where this publish is
@@ -532,8 +646,11 @@ export function App() {
           </span>
         </div>
         <span className="rule-v" />
-        <button className="source-btn" onClick={() => setShowSource(true)}>
-          <div className="site">{state.source.siteName}</div>
+        <button className={`source-btn site-${site}`} onClick={() => setShowSource(true)}>
+          <div className="site-line">
+            <span className="site">{state.source.siteName}</span>
+            <span className="site-state">{SITE_WORD[site]}</span>
+          </div>
           <div className="where">local copy · {state.source.owner}/{state.source.repo}</div>
         </button>
 
@@ -548,6 +665,27 @@ export function App() {
           {online ? 'Online' : 'Offline'}
         </button>
 
+        {/* The app knew where the page was served from the moment it read the
+            repository's CNAME, and used it only to fetch-and-compare after a
+            push. There was no way to simply go and look at it. */}
+        <button
+          className="btn btn-ghost"
+          disabled={!destinations}
+          onClick={() => window.open(destinations!.live.url, '_blank', 'noopener')}
+          title={destinations ? `Open ${destinations.live.url}` : ''}
+        >
+          Open live
+        </button>
+
+        <button
+          className="btn btn-ghost"
+          disabled={!destinations}
+          onClick={() => window.open(destinations!.preview.url, '_blank', 'noopener')}
+          title={destinations ? `Open ${destinations.preview.url}` : ''}
+        >
+          Open preview
+        </button>
+
         <button
           className="btn btn-ghost"
           onClick={() => void openHistory()}
@@ -556,9 +694,12 @@ export function App() {
           History
         </button>
 
+        {/* A replaced image queues no patch — the bytes go straight into the
+            working copy — so gating on the patch count alone left that change
+            unpublishable unless some text happened to be edited too. */}
         <button
           className="btn btn-primary"
-          disabled={dirty === 0 && !state.restored}
+          disabled={dirty === 0 && !state.restored && !state.localModified}
           onClick={() => setPub({
             open: true, phase: 'review', steps: [], outcome: null, error: null,
             dest: defaultDest,
@@ -571,44 +712,34 @@ export function App() {
 
       {/* ---------------- middle ---------------- */}
       <div className="middle">
-        {/* sidebar */}
-        <aside className="sidebar">
-          <div>
-            <div className="label sidebar-label">The copy you are editing</div>
-            {state.files.slice(0, 40).map((f) => {
-              const isPage = f.path === state.activeFile;
-              const isImg = /\.(png|jpe?g|gif|webp|svg)$/i.test(f.path);
-              return (
-                <button
-                  key={f.path}
-                  className={`row file ${isPage ? 'active' : ''}`}
-                  onClick={() => { if (isImg) { setTab('pictures'); } }}
-                >
-                  {isImg ? <ImageIcon /> : <FileText />}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.path}</span>
-                  {isPage && dirty > 0 && <span className="dirty" />}
-                </button>
-              );
-            })}
+        {/* centre */}
+        <main className="centre">
+          <div className="toolbar">
+            <span className="path">{state.activeFile}</span>
+            <span className="note">
+              compiled · {Math.round((fileText.length || 0) / 1024)} KB
+            </span>
+            <span className="spacer" />
+            <div className="seg">
+              <button className={mode === 'page' ? 'on' : ''} onClick={() => setMode('page')}>Page</button>
+              <button className={mode === 'split' ? 'on' : ''} onClick={() => setMode('split')}>Page + code</button>
+              <button className={mode === 'code' ? 'on' : ''} onClick={() => setMode('code')}>Code</button>
+            </div>
           </div>
 
-          {state.health && (
-            <div className="health">
-              <div className="label">Checked on open</div>
-              <div className="health-counts">
-                <div className="health-count"><span>Words found</span><b>{state.health.stringsIndexed}</b></div>
-                <div className="health-count"><span>Pictures found</span><b>{state.health.imagesFound}</b></div>
-              </div>
-              <div className={`card ${state.health.headTagsInHead ? 'ok' : ''}`}>
-                <div className="card-title">Link previews</div>
-                <div className="card-body">
-                  {state.health.headTagsInHead
-                    ? 'The share tags are in the right place. Link previews will work.'
-                    : state.health.headDetail}
+          {hasNotices && (
+            <div className="notices">
+              {headBad && state.health && (
+                <div className="card">
+                  <div className="card-title">Share tags</div>
+                  <div className="card-body">
+                    {state.health.headDetail}{' '}
+                    Publishing refuses the page until this is fixed.
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {mode !== 'code' && preview.headline && (
+              {previewNote && (
                 <div className="card warn">
                   <div className="card-title">Not showing in the page</div>
                   <div className="card-body">
@@ -632,14 +763,29 @@ export function App() {
                 </div>
               )}
 
-              {state.health.orphanedChanges > 0 && (
+              {applied > 0 && state.health && (
+                <div className="card">
+                  <div className="card-title">Already on the page</div>
+                  <div className="card-body">
+                    {applied} queued edit{applied === 1 ? '' : 's'}
+                    {applied === 1 ? ' is' : ' are'} already in this copy of the page — the
+                    change {applied === 1 ? 'it makes has' : 'they make have'} been made.
+                    This is what a publish that reached GitHub but was reported as failed
+                    leaves behind. Publishing {applied === 1 ? 'it' : 'them'} would change
+                    nothing.
+                  </div>
+                  <button className="btn btn-primary" onClick={ed.dropApplied}>
+                    Forget them
+                  </button>
+                </div>
+              )}
+
+              {orphans > 0 && state.health && (
                 <div className="card">
                   <div className="card-title">Edits with nowhere to go</div>
                   <div className="card-body">
-                    {state.health.orphanedChanges} queued change
-                    {state.health.orphanedChanges === 1 ? '' : 's'} no longer
-                    {state.health.orphanedChanges === 1 ? ' matches' : ' match'} anything on
-                    this page
+                    {orphans} queued change{orphans === 1 ? '' : 's'} no longer
+                    {orphans === 1 ? ' matches' : ' match'} anything on this page
                     {state.health.exportDetected
                       ? ' — the page was replaced by a new export since you made them.'
                       : '.'}{' '}
@@ -652,22 +798,6 @@ export function App() {
               )}
             </div>
           )}
-        </aside>
-
-        {/* centre */}
-        <main className="centre">
-          <div className="toolbar">
-            <span className="path">{state.activeFile}</span>
-            <span className="note">
-              compiled · {Math.round((fileText.length || 0) / 1024)} KB
-            </span>
-            <span className="spacer" />
-            <div className="seg">
-              <button className={mode === 'page' ? 'on' : ''} onClick={() => setMode('page')}>Page</button>
-              <button className={mode === 'split' ? 'on' : ''} onClick={() => setMode('split')}>Page + code</button>
-              <button className={mode === 'code' ? 'on' : ''} onClick={() => setMode('code')}>Code</button>
-            </div>
-          </div>
 
           <div className={`panes ${mode === 'split' ? 'split' : ''}`}>
             {mode !== 'code' && idx && (
@@ -841,12 +971,17 @@ export function App() {
       </div>
 
       {/* ---------------- footer ---------------- */}
-      {/* Three questions, three slots, always filled. See status.ts. */}
+      {/* Two questions, two slots. See status.ts. */}
       <footer className="footer">
-        <span className="chip safe" title="Nothing you do here reaches the live site until you publish.">
-          {status.mode}
+        {/* The reassurance that used to occupy its own permanent slot survives
+            here, where it is available on hover without spending a slot on a
+            fact that never changes. */}
+        <span
+          className={`chip status-${status.pending.tone}`}
+          title="You are editing a copy on this computer. Nothing reaches the live site until you publish."
+        >
+          {status.pending.text}
         </span>
-        <span className={dirty ? 'footer-pending' : undefined}>{status.pending}</span>
         {status.connection && (
           <span className={`chip ${status.connection.tone === 'switched' ? 'switched' : 'dirty'}`}>
             {status.connection.text}
@@ -865,35 +1000,49 @@ export function App() {
       </footer>
 
       {/* ---------------- dialogs ---------------- */}
+      {drift.open && (
+        <DriftDialog
+          dirty={dirty}
+          comparison={drift.comparison}
+          loading={drift.loading}
+          error={drift.error}
+          busy={drift.busy}
+          onKeepMine={dismissDrift}
+          onClose={dismissDrift}
+          onTakeTheirs={async () => {
+            setDrift((d) => ({ ...d, busy: true }));
+            try {
+              await ed.applyRemote();
+              setDrift({ open: false, comparison: null, loading: false, error: null, busy: false });
+            } catch (e) {
+              setDrift((d) => ({ ...d, busy: false, error: (e as Error).message }));
+            }
+          }}
+        />
+      )}
+
       {showSource && (
         <SourceDialog
-          source={state.source}
-          lastPush={state.lastPush}
+          dirty={dirty}
+          site={site}
           onRefetch={() => { setShowSource(false); void ed.checkRemote(); }}
           onDisconnect={() => { setShowSource(false); void ed.disconnect(); }}
           onClose={() => setShowSource(false)}
         />
       )}
 
-      <SyncDialog
-        sync={state.sync}
-        busy={syncBusy}
-        onKeepLocal={ed.keepLocal}
-        onUseGitHub={async () => {
-          setSyncBusy(true);
-          try { await ed.applyRemote(); } finally { setSyncBusy(false); }
-        }}
-        onClose={ed.dismissSync}
-      />
+      <SyncDialog sync={state.sync} onClose={ed.dismissSync} />
 
       {hist.open && (
         <HistoryDialog
           versions={hist.versions}
+          setAside={hist.setAside}
           loading={hist.loading}
           error={hist.error}
           queued={dirty}
           busySha={hist.busySha}
           onRestore={(v) => void doRestore(v)}
+          onRestoreSetAside={(v) => void doRestoreSetAside(v)}
           onClose={() => setHist((h) => ({ ...h, open: false }))}
         />
       )}

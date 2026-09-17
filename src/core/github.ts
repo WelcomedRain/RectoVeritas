@@ -83,7 +83,24 @@ export function friendly(status: number, body: string): string {
     case 409:
       return 'The branch moved while publishing. Fetch the latest and try again.';
     case 422:
-      return 'GitHub refused the change as invalid.';
+      // GitHub sends 422, not 409, when a branch update is not a fast forward,
+      // so the 409 wording below was unreachable for the case it describes.
+      // This one is worth naming because the cause is specific and the page may
+      // already have the change: the branch moved between reading its head and
+      // moving it.
+      if (/fast forward/i.test(body)) {
+        return withSaid(
+          'The branch moved between reading it and writing to it, so this push was '
+          + 'refused. Nothing was overwritten. The change may already be on the site '
+          + 'from an earlier attempt — press Check Sync before publishing again.',
+          body,
+        );
+      }
+      // Every other explained status passes GitHub's own words through. This
+      // one did not, which made the most ambiguous failure in the app the only
+      // one you could not diagnose: 422 also covers a bad tree and a rejected
+      // blob, and they need different fixes.
+      return withSaid('GitHub refused the change as invalid.', body);
     default:
       return `GitHub returned ${status}.`;
   }

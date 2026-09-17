@@ -58,3 +58,33 @@ describe('parseRepoInput', () => {
       .toEqual({ owner: 'WelcomedRain', repo: 'Anthea-Solve' });
   });
 });
+
+describe('422, the one that needed its reason most', () => {
+  /**
+   * A 422 covers a non-fast-forward branch update, a rejected tree and a bad
+   * blob, and they call for different fixes. It was the only explained status
+   * that dropped GitHub's own words, which made the most ambiguous failure in
+   * the app the one you could not diagnose.
+   */
+  /**
+   * The real case, seen in use: two publishes ran at once, the first moved the
+   * branch and went live, the second was refused — and the app reported a
+   * failure for work that had already shipped.
+   */
+  it('names the branch-moved case, because the change may already be live', () => {
+    const m = friendly(422, '{"message":"Update is not a fast forward"}');
+    expect(m).toMatch(/branch moved/i);
+    expect(m).toMatch(/Check Sync/);
+    expect(m).toContain('not a fast forward');
+  });
+
+  it('falls back to the generic wording for other 422s', () => {
+    const m = friendly(422, '{"message":"tree.path contains a malformed path"}');
+    expect(m).toContain('refused the change as invalid');
+    expect(m).not.toMatch(/branch moved/i);
+  });
+
+  it('still reads as a sentence when GitHub said nothing useful', () => {
+    expect(friendly(422, '')).toContain('refused the change as invalid');
+  });
+});

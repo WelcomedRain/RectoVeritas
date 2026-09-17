@@ -1,81 +1,121 @@
 import { useState } from 'react';
-import type { StoredSource } from '../core/db';
 import type { PendingChange, Step } from '../core/publish';
 import type { Destination, DestinationId } from '../core/destination';
-import { canRestore, type Version } from '../core/history';
+import { canRestore, type Version, type SetAside } from '../core/history';
 import type { SyncState } from './store';
+import { syncMessage } from './status';
+import type { Comparison } from '../core/compare';
+import type { SiteState } from './status';
+
+/** Mirrors the store's retention. Shown so the promise here is the real one. */
+const SET_ASIDE_KEEP = 5;
 import type { DeployObservation } from '../core/deploy';
 
-function Backdrop({ children, onClose, width }: { children: React.ReactNode; onClose: () => void; width: number }) {
+function Backdrop({ children, onClose, width, tight }: {
+  children: React.ReactNode; onClose: () => void; width: number; tight?: boolean;
+}) {
   return (
     <div className="backdrop" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="dialog" style={{ maxWidth: width }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`dialog ${tight ? 'tight' : ''}`}
+        style={{ maxWidth: width }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {children}
       </div>
     </div>
   );
 }
 
-const ago = (t: number | null) => {
-  if (!t) return 'never';
-  const s = Math.round((Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
-};
 
 /* ------------------------------ Source ------------------------------- */
 
 export function SourceDialog({
-  source, lastPush, onRefetch, onDisconnect, onClose,
+  dirty, site, onRefetch, onDisconnect, onClose,
 }: {
-  source: StoredSource;
-  lastPush: number | null;
+  /**
+   * The same four states the header shows, not a bare in-sync boolean.
+   *
+   * Reading `inSync` alone made this box say "This copy matches the site"
+   * while the header said "edits pending" two inches above it. Both were true
+   * of different things — the baseline did match GitHub, and the edits were
+   * unpublished — but a reader has no way to know the box is talking about the
+   * version this copy came from rather than about what they are looking at.
+   */
+  site: SiteState;
+  /** Queued edits. The only thing here that cannot be got back. */
+  dirty: number;
   onRefetch: () => void;
   onDisconnect: () => void;
   onClose: () => void;
 }) {
+  /**
+   * "Change Site" is the intended act — swap which site this app is bound to,
+   * and swap back later — but the mechanism is destructive: it clears the
+   * patches, the files, the source and the token, with no way back. Everything
+   * except the queued edits is recoverable from GitHub, which is exactly why
+   * the queued edits are the number this step says out loud. They were never
+   * committed, so no commit can return them.
+   */
+  const [confirming, setConfirming] = useState(false);
+
   return (
-    <Backdrop onClose={onClose} width={620}>
+    <Backdrop onClose={onClose} width={430} tight>
       <div className="stack">
+        {/* The heading, the paragraph explaining copy-to-GitHub-to-live, and the
+            three-column Working copy / GitHub / Live site block all came out.
+            They described a process rather than offering an action, and the one
+            fact they carried that is worth having — whether this copy is still
+            the site — is answered in the header and the footer, continuously,
+            without opening anything. What is left is the two things this box
+            can actually do. */}
         <div>
-          <h2>Where your words live</h2>
+          <h2>Site Management</h2>
           <p style={{ marginTop: 6 }}>
-            You edit a copy held on this device. Publishing sends it to GitHub, and GitHub
-            rebuilds the live site.
+            {site === 'match' && 'This copy matches the site.'}
+            {site === 'pending' && (dirty > 0
+              ? `This copy came from the current version on GitHub. ${dirty} `
+                + `edit${dirty === 1 ? '' : 's'} ${dirty === 1 ? 'is' : 'are'} not published yet.`
+              : 'This copy came from the current version on GitHub, and has unpublished changes.')}
+            {site === 'behind' && 'The site has changed since this copy was opened.'}
+            {site === 'unchecked' && 'This copy has not been checked against the site.'}
           </p>
         </div>
 
-        <div className="cols3">
-          <div>
-            <span className="label">You edit this</span>
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Working copy</span>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--color-neutral-700)' }}>
-              on this device · fetched {ago(source.lastFetched)}
-            </span>
+        {confirming ? (
+          <>
+            <div className="banner-err">
+              <b>Disconnecting clears this site from this device.</b>
+              <div style={{ marginTop: 6 }}>
+                {dirty > 0
+                  ? `${dirty} queued edit${dirty === 1 ? '' : 's'} `
+                    + `${dirty === 1 ? 'has' : 'have'} never been published. `
+                    + `${dirty === 1 ? 'It exists' : 'They exist'} only in this browser and `
+                    + `cannot be recovered afterwards.`
+                  : 'Nothing is queued, so no unpublished work is at risk.'}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                Your access token is cleared and you will need to paste it again. The working
+                copy is fetched fresh from GitHub, and published versions stay in the
+                repository either way.
+              </div>
+            </div>
+            <div className="actions">
+              <button className="btn btn-primary" onClick={onDisconnect}>
+                {dirty > 0
+                  ? `Discard ${dirty} edit${dirty === 1 ? '' : 's'} and disconnect`
+                  : 'Disconnect this site'}
+              </button>
+              <button className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
+            </div>
+          </>
+        ) : (
+          <div className="actions">
+            <button className="btn btn-primary" onClick={onRefetch}>Check Sync</button>
+            <button className="btn" onClick={() => setConfirming(true)}>Change Site</button>
+            <button className="btn btn-ghost" onClick={onClose}>Done</button>
           </div>
-          <div>
-            <span className="label">Publishing goes here</span>
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>GitHub</span>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--color-neutral-700)' }}>
-              {source.owner}/{source.repo} · {source.branch}
-            </span>
-          </div>
-          <div>
-            <span className="label">Everyone sees this</span>
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Live site</span>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--color-neutral-700)' }}>
-              rebuilt {ago(lastPush)}
-            </span>
-          </div>
-        </div>
-
-        <div className="actions">
-          <button className="btn btn-primary" onClick={onRefetch}>Fetch the latest from GitHub</button>
-          <button className="btn" onClick={onDisconnect}>Connect a different site</button>
-          <button className="btn btn-ghost" onClick={onClose}>Done</button>
-        </div>
+        )}
       </div>
     </Backdrop>
   );
@@ -90,7 +130,10 @@ export function ConnectDialog({
   error: string | null;
   busy: boolean;
 }) {
-  const [repo, setRepo] = useState('WelcomedRain/Anthea-Solve');
+  // Empty, not prefilled. A default here is one person's repository shown to
+  // everyone else as though it were theirs, and it is the first thing the app
+  // ever says.
+  const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
   const [token, setToken] = useState('');
 
@@ -165,68 +208,26 @@ export function ConnectDialog({
 /* -------------------------------- Sync -------------------------------- */
 
 /**
- * Shown only when GitHub has moved AND there is unpublished work.
+ * The outcome of a look at GitHub, when there is an outcome worth reporting.
  *
- * There is deliberately no "merge" here. The page is one compiled file whose
- * byte offsets shift wholesale on every export, so a three-way merge would be
- * guesswork dressed up as a feature. Two honest choices beat one dishonest one.
+ * It used to own the disagreement case too — "GitHub has changed, and so have
+ * you", offering two shas and a choice. That moved to `DriftDialog`, which
+ * offers the same two choices and can also say what actually differs, and it
+ * is now raised by the observation itself rather than by whoever happened to
+ * press a button. There is deliberately still no "merge": the page is one
+ * compiled file whose byte offsets shift wholesale on every export, so a
+ * three-way merge would be guesswork dressed up as a feature.
  */
 export function SyncDialog({
-  sync, onKeepLocal, onUseGitHub, onClose, busy,
+  sync, onClose,
 }: {
   sync: SyncState;
-  onKeepLocal: () => void;
-  onUseGitHub: () => void;
   onClose: () => void;
-  busy: boolean;
 }) {
   if (sync.kind === 'idle' || sync.kind === 'checking') return null;
 
-  if (sync.kind === 'decision') {
-    return (
-      <Backdrop onClose={onClose} width={560}>
-        <div className="stack">
-          <div>
-            <h2>GitHub has changed, and so have you</h2>
-            <p style={{ marginTop: 6 }}>
-              The page on GitHub is not the one your working copy came from, and you have{' '}
-              {sync.dirty} unpublished change{sync.dirty === 1 ? '' : 's'}. Nothing has been
-              touched yet.
-            </p>
-          </div>
 
-          <table className="proptable">
-            <tbody>
-              <tr><td className="k">Yours</td><td className="mono" style={{ fontSize: 11 }}>{sync.localSha.slice(0, 10)} · {sync.dirty} edit{sync.dirty === 1 ? '' : 's'}</td></tr>
-              <tr><td className="k">GitHub</td><td className="mono" style={{ fontSize: 11 }}>{sync.remoteSha.slice(0, 10)}</td></tr>
-            </tbody>
-          </table>
-
-          <div className="banner-err">
-            Taking GitHub&rsquo;s version replaces the page your edits were made against, so
-            those edits can no longer be applied. Your current working copy is preserved and
-            stays retrievable, but it will not be published.
-          </div>
-
-          <div className="actions">
-            <button className="btn btn-primary" onClick={onKeepLocal} disabled={busy}>
-              Keep my edits
-            </button>
-            <button className="btn" onClick={onUseGitHub} disabled={busy}>
-              {busy ? 'Fetching…' : 'Take GitHub\u2019s version'}
-            </button>
-          </div>
-        </div>
-      </Backdrop>
-    );
-  }
-
-  const body =
-    sync.kind === 'up-to-date' ? 'Your working copy is based on the current version on GitHub.'
-    : sync.kind === 'updated' ? (sync.displaced
-        ? 'Updated from GitHub. Your previous working copy was preserved.'
-        : 'Updated from GitHub. You had no unpublished changes.')
-    : sync.message;
+  const body = syncMessage(sync);
 
   return (
     <Backdrop onClose={onClose} width={460}>
@@ -262,6 +263,9 @@ export function PublishDialog({
   onClose: () => void;
 }) {
   const target = destinations?.[dest] ?? null;
+  // Which step stopped decides what can honestly be said about the site.
+  const failedAtPush = steps.some((s) => s.state === 'failed' && s.id === 'pushed');
+
   return (
     <Backdrop onClose={phase === 'running' ? () => {} : onClose} width={560}>
       {phase === 'review' && (
@@ -326,7 +330,13 @@ export function PublishDialog({
           </div>
 
           <div className="actions">
-            <button className="btn btn-primary" onClick={onPublish}>Publish</button>
+            <button
+              className="btn btn-primary"
+              disabled={phase !== 'review'}
+              onClick={onPublish}
+            >
+              Publish
+            </button>
             <button className="btn btn-ghost" onClick={onClose}>Not yet</button>
           </div>
         </div>
@@ -355,8 +365,21 @@ export function PublishDialog({
           {phase === 'done' && outcome === 'failed' && (
             <div className="banner-err">
               {error}
+              {/* "Nothing reached the live site" is only knowable when the run
+                  stopped before anything was sent. Sending is four calls —
+                  blob, tree, commit, then moving the branch — and an exception
+                  does not say which of them happened. Claiming nothing shipped
+                  from a local throw is the same class of lie as claiming a save
+                  that never happened, and it is worse here because it leaves
+                  the queue looking unpublished when the site may already have
+                  the change. */}
               <div style={{ marginTop: 6 }}>
-                Your edits are safe and still queued. Nothing reached the live site.
+                {failedAtPush
+                  ? 'Your edits are still queued. This failed while sending, so whether '
+                    + 'anything reached GitHub is not known from here — press Check Sync '
+                    + 'to find out before publishing again.'
+                  : 'Your edits are safe and still queued. Nothing was sent, so the live '
+                    + 'site is untouched.'}
               </div>
             </div>
           )}
@@ -419,14 +442,17 @@ export function PublishDialog({
  * record of what happened stays true, including the mistake.
  */
 export function HistoryDialog({
-  versions, loading, error, queued, busySha, onRestore, onClose,
+  versions, setAside, loading, error, queued, busySha, onRestore, onRestoreSetAside, onClose,
 }: {
   versions: Version[];
+  /** Working copies set aside when GitHub's version was taken instead. */
+  setAside: SetAside[];
   loading: boolean;
   error: string | null;
   queued: number;
   busySha: string | null;
   onRestore: (v: Version) => void;
+  onRestoreSetAside: (s: SetAside) => void;
   onClose: () => void;
 }) {
   return (
@@ -474,6 +500,40 @@ export function HistoryDialog({
           );
         })}
 
+        {setAside.length > 0 && (
+          <>
+            <div style={{ marginTop: 4 }}>
+              <h2 style={{ fontSize: 15 }}>Set aside on this computer</h2>
+              <p style={{ marginTop: 4, fontSize: 13 }}>
+                Each time you chose the site&rsquo;s version over your own, the copy you
+                had was kept here rather than discarded. These were never published, so
+                they exist only in this browser. The most recent {SET_ASIDE_KEEP} are kept.
+              </p>
+            </div>
+            {setAside.map((v) => (
+              <div className="ver" key={v.key}>
+                <div className="ver-main">
+                  <div className="ver-msg">Your copy before the overwrite</div>
+                  <div className="ver-meta">
+                    <span>{v.ago}</span>
+                    <span className="ver-tag dim">on this computer only</span>
+                  </div>
+                </div>
+                <button
+                  className="btn"
+                  disabled={queued > 0 || busySha != null}
+                  title={queued > 0
+                    ? 'Publish or undo the queued changes first — this would replace the page they are edits to.'
+                    : undefined}
+                  onClick={() => onRestoreSetAside(v)}
+                >
+                  {busySha === v.key ? 'Loading…' : 'Go back to this'}
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
         {queued > 0 && (
           <div className="banner-err">
             You have {queued} change{queued === 1 ? '' : 's'} waiting. Publish or undo
@@ -483,6 +543,135 @@ export function HistoryDialog({
 
         <div className="actions">
           <button className="btn btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </Backdrop>
+  );
+}
+
+/* ------------------------- Site has changed ------------------------- */
+
+/**
+ * Raised when GitHub and the working copy do not match.
+ *
+ * Says nothing about why. The app cannot tell an edit made elsewhere from a
+ * half-landed push from a bad deploy, and naming a cause it has not
+ * established would be a guess wearing the clothes of a diagnosis.
+ *
+ * Deliberately not a fetch-and-replace. A remote that has moved is not
+ * automatically the better version: a bad deploy, a half-landed push, or an
+ * edit made from somewhere else all look identical from here, and only the
+ * person reading it knows which. So the two ways out are stated as equals and
+ * neither happens on its own.
+ */
+export function DriftDialog({
+  dirty, comparison, loading, error, busy, onTakeTheirs, onKeepMine, onClose,
+}: {
+  dirty: number;
+  comparison: Comparison | null;
+  loading: boolean;
+  error: string | null;
+  busy: boolean;
+  onTakeTheirs: () => void;
+  onKeepMine: () => void;
+  onClose: () => void;
+}) {
+  const diffs = comparison?.differences ?? [];
+  const shown = diffs.slice(0, 12);
+  const images = comparison
+    ? comparison.imagesChanged + comparison.imagesOnlyMine + comparison.imagesOnlyTheirs
+    : 0;
+
+  return (
+    <Backdrop onClose={onClose} width={640}>
+      <div className="stack">
+        <div>
+          <h2>Out-of-sync warning</h2>
+          <p style={{ marginTop: 6 }}>
+            The GitHub site does not match the local IndexedDB site in RectoVeritas.
+            No change has been made to the local file
+            {dirty > 0
+              ? ` and the ${dirty} unpublished edit${dirty === 1 ? '' : 's'} `
+                + `${dirty === 1 ? 'is' : 'are'} still present.`
+              : '.'}
+          </p>
+        </div>
+
+        {loading && <p className="label">Reading the version on GitHub…</p>}
+        {error && <div className="banner-err">{error}</div>}
+
+        {comparison && (
+          <div className="drift">
+            {diffs.length === 0 && images === 0 && (
+              <p className="empty">
+                The two versions read the same to the editor, so the difference is
+                somewhere it does not index — whitespace, ordering, or the build itself.
+              </p>
+            )}
+
+            {shown.map((d, i) => (
+              <div className="drift-row" key={`${d.tag}-${i}`}>
+                <div className="drift-head">
+                  <span className="drift-tag">{d.tag}</span>
+                  <span className="drift-label">{d.label}</span>
+                </div>
+                {d.kind === 'changed' && (
+                  <>
+                    <div className="drift-mine">{d.mine}</div>
+                    <div className="drift-theirs">{d.theirs}</div>
+                  </>
+                )}
+                {d.kind === 'only-mine' && <div className="drift-mine">Only in your copy: {d.mine}</div>}
+                {d.kind === 'only-theirs' && <div className="drift-theirs">Only on the site: {d.theirs}</div>}
+              </div>
+            ))}
+
+            {diffs.length > shown.length && (
+              <p className="label">and {diffs.length - shown.length} more</p>
+            )}
+            {images > 0 && (
+              <p className="label">
+                {comparison.imagesChanged > 0 && `${comparison.imagesChanged} image(s) differ. `}
+                {comparison.imagesOnlyMine > 0 && `${comparison.imagesOnlyMine} only in your copy. `}
+                {comparison.imagesOnlyTheirs > 0 && `${comparison.imagesOnlyTheirs} only on the site.`}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="banner-err">
+          <div>
+            Using the site&rsquo;s version will overwrite RectoVeritas&rsquo; locally stored
+            version. The copy being replaced is kept, and History can put it back.
+          </div>
+          {/* Written out whole rather than assembled from word-level ternaries.
+              The first attempt produced "any that still point at something, they
+              stay ready to publish", which is what stitching a sentence together
+              from conditionals tends to produce. */}
+          {dirty === 1 && (
+            <div style={{ marginTop: 6 }}>
+              Your unpublished edit is not discarded. It is re-checked against the incoming
+              page: if it still points at something it stays ready to publish, and if it
+              does not it is listed as having nowhere to go, for you to keep or forget.
+            </div>
+          )}
+          {dirty > 1 && (
+            <div style={{ marginTop: 6 }}>
+              Your {dirty} unpublished edits are not discarded. They are re-checked against
+              the incoming page: any that still point at something stay ready to publish,
+              and any that do not are listed as having nowhere to go, for you to keep or
+              forget.
+            </div>
+          )}
+        </div>
+
+        <div className="actions">
+          <button className="btn btn-primary" onClick={onKeepMine} disabled={busy}>
+            Keep my copy
+          </button>
+          <button className="btn" onClick={onTakeTheirs} disabled={busy}>
+            {busy ? 'Replacing…' : 'Use the site’s version'}
+          </button>
         </div>
       </div>
     </Backdrop>

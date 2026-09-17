@@ -20,6 +20,16 @@
   --color-neutral-800: #444141;
   --color-neutral-900: #2d2b2b;
 
+  /* The footer's two answers. Green and amber are the only hues in the app
+     besides the accent, and they exist because "do the copies match" is the
+     one question worth answering without being read. */
+  --color-ok-100: #e4efe0;
+  --color-ok-400: #6f9455;
+  --color-ok-800: #2c4d1c;
+  --color-wait-100: #faf0d8;
+  --color-wait-400: #c8973f;
+  --color-wait-800: #6a4a10;
+
   --color-accent-100: #fff2ef;
   --color-accent-200: #ffe0d9;
   --color-accent-700: #ae1800;
@@ -29,8 +39,9 @@
      measured contrast against the panel ground (#f3f2f2) rather than picked:
      the band needs about 1.2 to register at a glance, and the heading needs to
      be plainly darker than either band so it reads as a label. */
+  --band-plain: #f8f8f8;
   --band-alt: #e3dfdf;
-  --band-head: #cec8c8;
+  --band-head: #606060;
 
   --font-heading: 'Archivo', system-ui, sans-serif;
   --font-body: 'Archivo', system-ui, sans-serif;
@@ -149,7 +160,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   display: grid;
   /* The 430px floor on the centre column is what keeps the toolbar inside its
      column at narrow widths. Do not replace these with fixed widths. */
-  grid-template-columns: minmax(140px, 238px) minmax(430px, 1fr) minmax(200px, 330px);
+  grid-template-columns: minmax(430px, 1fr) minmax(200px, 330px);
   min-height: 0;
 }
 
@@ -183,9 +194,14 @@ button:disabled { cursor: default; opacity: 0.4; }
 
 .rule-v { width: 2px; height: 22px; background: var(--color-divider); }
 
+/* The one control in the header that does not look like one. It carries the
+   site name rather than a verb, so nothing about the words says "press me" —
+   and behind it is the only explanation of where the working copy, GitHub and
+   the live site stand relative to each other. A border at rest, in the same
+   1px grey the grouped fields use, is what says it can be opened. */
 .source-btn {
   background: transparent;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-neutral-400);
   padding: 4px 6px;
   text-align: left;
   display: block;
@@ -201,8 +217,32 @@ button:disabled { cursor: default; opacity: 0.4; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.source-btn:hover { background: var(--hover); border-color: var(--color-divider); }
+.source-btn:hover { background: var(--hover); border-color: var(--color-neutral-700); }
+.source-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+/* Name on the left, state on the right, on one line. The state is the reason
+   the button is worth looking at, so it gets the end of the line where the eye
+   stops rather than being buried under the repository path. */
+.source-btn .site-line { display: flex; align-items: baseline; gap: 12px; }
 .source-btn .site { font-family: var(--font-heading); font-weight: 800; font-size: 13px; }
+.source-btn .site-state {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Same two colours as the footer, and for the same reason: this is the one
+   question worth answering before it is asked. 'behind' shares amber with
+   'pending' — both mean the copy and the site disagree; the word says which. */
+.source-btn.site-match { background: var(--color-ok-100); border-color: var(--color-ok-400); }
+.source-btn.site-match .site-state { color: var(--color-ok-800); }
+.source-btn.site-pending,
+.source-btn.site-behind { background: var(--color-wait-100); border-color: var(--color-wait-400); }
+.source-btn.site-pending .site-state,
+.source-btn.site-behind .site-state { color: var(--color-wait-800); }
+.source-btn.site-unchecked .site-state { color: var(--color-neutral-700); }
 .source-btn .where { font-size: 11px; color: var(--color-neutral-700); font-family: var(--font-mono); }
 
 .pill {
@@ -222,41 +262,6 @@ button:disabled { cursor: default; opacity: 0.4; }
 .status-square { width: 8px; height: 8px; background: var(--color-text); }
 .status-square.off { background: var(--color-accent); }
 
-/* ---- sidebar ---- */
-
-.sidebar {
-  border-right: 2px solid var(--color-divider);
-  overflow: auto;
-  padding: 12px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.sidebar-label { padding: 0 12px 6px; }
-
-.row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  text-align: left;
-}
-.row.file { font-family: var(--font-mono); }
-.row.dir { font-family: var(--font-heading); font-weight: 800; font-size: 11px; text-transform: uppercase; }
-.row:hover:not(.active) { background: var(--hover); }
-.row.active { background: var(--color-accent-100); box-shadow: inset 3px 0 0 var(--color-accent); }
-.row .note { margin-left: auto; font-size: 11px; color: var(--color-neutral-700); }
-.row .dirty { width: 7px; height: 7px; background: var(--color-accent); flex: none; }
-.row svg { flex: none; }
-
-.health { padding: 0 12px; display: flex; flex-direction: column; gap: 8px; }
-.health-counts { display: flex; flex-direction: column; gap: 3px; }
-.health-count { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-neutral-700); }
-.health-count b { font-family: var(--font-heading); font-weight: 800; color: var(--color-text); }
-
 .card {
   border-left: 2px solid var(--color-accent);
   background: var(--color-accent-100);
@@ -266,11 +271,6 @@ button:disabled { cursor: default; opacity: 0.4; }
   flex-direction: column;
   gap: 6px;
   align-items: flex-start;
-}
-.card.ok {
-  border-left: 2px solid var(--color-divider);
-  background: transparent;
-  color: var(--color-neutral-700);
 }
 /* "This is true of the preview, not of your change." Deliberately not the
    accent treatment used for problems — nothing here is wrong, and colouring it
@@ -474,7 +474,10 @@ button:disabled { cursor: default; opacity: 0.4; }
 
 /* The standing fact that nothing here touches the live site. Quiet on purpose:
    it is always true, so it must never compete with the things that change. */
-.chip.safe { border-color: var(--color-neutral-400); color: var(--color-neutral-700); }
+.chip.status-match { border-color: var(--color-ok-400); background: var(--color-ok-100); color: var(--color-ok-800); }
+.chip.status-waiting { border-color: var(--color-wait-400); background: var(--color-wait-100); color: var(--color-wait-800); }
+/* No colour: a push that could not be checked is not a result. */
+.chip.status-unknown { border-color: var(--color-neutral-400); color: var(--color-neutral-700); }
 
 /* A switch he flipped himself, not a fault. Marked so it cannot be mistaken
    for a dropped connection, and so it stays visible until he flips it back. */
@@ -485,7 +488,6 @@ button:disabled { cursor: default; opacity: 0.4; }
 }
 
 /* Work waiting to go out earns weight; a settled deployment state does not. */
-.footer-pending { color: var(--color-accent-800); font-weight: 600; }
 
 /* ---- dialogs ---- */
 
@@ -512,6 +514,26 @@ button:disabled { cursor: default; opacity: 0.4; }
 .dialog h3 { font-family: var(--font-heading); font-weight: 800; font-size: 16px; }
 .dialog p { font-size: 13px; line-height: 1.5; }
 .dialog .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+
+/* A box that is one line of state and three buttons does not need the
+   proportions of a page. */
+.dialog.tight { padding: 16px 18px; }
+.dialog.tight h2 { font-size: 16px; }
+.dialog.tight .stack { gap: 9px; }
+.dialog.tight .actions { margin-top: 12px; }
+.dialog.tight p { font-size: 13px; }
+
+/* ---- what differs between two versions ---- */
+
+.drift { display: flex; flex-direction: column; gap: 9px; max-height: 44vh; overflow: auto; }
+.drift-row { display: flex; flex-direction: column; gap: 3px; padding-top: 8px; border-top: 1px solid var(--color-divider); }
+.drift-head { display: flex; gap: 8px; align-items: baseline; }
+.drift-tag { font-family: var(--font-mono); font-size: 11px; color: var(--color-neutral-700); }
+.drift-label { font-family: var(--font-heading); font-weight: 800; font-size: 12px; }
+/* Yours above theirs, in the same order as the buttons below, so the colours
+   and the choices cannot come apart. */
+.drift-mine { background: var(--color-wait-100); color: var(--color-wait-800); padding: 5px 8px; font-size: 12px; }
+.drift-theirs { background: var(--color-neutral-200); padding: 5px 8px; font-size: 12px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 
 .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 2px solid var(--color-text); }
@@ -658,7 +680,12 @@ button:disabled { cursor: default; opacity: 0.4; }
 .panel-banded { padding: 12px 0; gap: 0; }
 .panel-banded > .label { padding: 0 12px 10px; }
 
+/* Headings are siblings of the bodies, not children of them, because a sticky
+   element is held only while its own parent is on screen. Nested, each heading
+   left with its section; flat, they park one under another and the sections you
+   have already passed stay visible and clickable. */
 .band {
+  background: var(--band-plain);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -680,8 +707,14 @@ button:disabled { cursor: default; opacity: 0.4; }
   display: flex;
   align-items: baseline;
   gap: 8px;
-  width: calc(100% + 24px);
-  margin: -10px -12px 0;
+  /* No horizontal bleed. These heads are siblings of `.band`, not children of
+     it (see the note above), so their parent is `.panel-banded`, whose padding
+     is `12px 0`. The -12px side margins were cancelling padding that is not
+     there and pushed the bar 12px past both edges of the column — clipping the
+     label on the left and running the count under the scrollbar on the right.
+     Stretched by the flex parent instead, so the padding below is what sets
+     the inset, and it matches the content rows. */
+  margin: -10px 0 0;
   padding: 8px 12px;
   background: inherit;
   border: 0;
@@ -689,7 +722,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   text-align: left;
   cursor: pointer;
 }
-.band-head:hover .band-name { color: var(--color-text); }
+.band-head:hover .band-name { color: #fff; }
 .band-head:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
 /* A shut band is one line: the title, the count, and no false start. */
@@ -702,8 +735,9 @@ button:disabled { cursor: default; opacity: 0.4; }
   line-height: 1;
   width: 9px;
   flex: none;
-  color: var(--color-neutral-600);
-}
+  color: rgba(255, 255, 255, 0.72);
+}
+
 /* The heading is its own surface, the same one on every band.
 
    It used to inherit the band's background, which meant it was identical to
@@ -720,7 +754,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-neutral-800);
+  color: #fff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -729,7 +763,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-neutral-600);
+  color: rgba(255, 255, 255, 0.72);
 }
 .band-note {
   margin: 0;
@@ -795,8 +829,8 @@ button:disabled { cursor: default; opacity: 0.4; }
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-left: 9px;
-  border-left: 2px solid var(--color-neutral-400);
+  padding: 9px;
+  border: 1px solid var(--color-neutral-400);
 }
 
 .clump-head {
@@ -908,3 +942,26 @@ button:disabled { cursor: default; opacity: 0.4; }
 /* Said when the ranking and the page disagree. A confident wrong explanation
    would be worse than none, so this is deliberately prominent. */
 .trace-warn { color: var(--color-accent-800); }
+
+/* The Select tab sits on the same darker ground as the Words tab bands, so
+   moving between the two does not feel like moving between two apps. */
+.panel-select { background: var(--band-alt); }
+
+/* A group box takes the opposite tone to the band it sits in, so it reads as
+   a thing set into the section rather than another stripe of it. */
+.band .clump { background: var(--band-alt); }
+.band.alt .clump { background: var(--band-plain); }
+
+/* ---- notices ---- */
+
+/* Problems only, and only while they last: the strip is absent from the layout
+   whenever there is nothing wrong, which is most of the time. It sits directly
+   above the page it is talking about rather than in a column of its own. */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--band-plain);
+  border-bottom: 1px solid var(--color-divider);
+}

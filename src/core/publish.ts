@@ -81,6 +81,35 @@ export function editsFor(changes: PendingChange[], targets: Map<string, EditTarg
   });
 }
 
+/**
+ * A queued edit that the page already satisfies.
+ *
+ * The case this exists for, seen in use: a publish reached GitHub but was
+ * reported as failed, so the queue was never cleared. The working copy was
+ * then re-fetched, which brought back a page that *already contained* those
+ * edits — and the app went on insisting two changes were waiting, showing them
+ * as "not showing in the page" (they changed nothing, because there was
+ * nothing left to change) while the sync check correctly reported the copy as
+ * matching GitHub. Every reading was true and the combination was unusable.
+ *
+ * Distinct from an orphan. An orphan has lost its target; this one has hit it
+ * and found the work already done.
+ */
+export function alreadyApplied(
+  change: PendingChange,
+  targets: Map<string, EditTarget>,
+  template: string,
+): boolean {
+  let edit: Edit;
+  try {
+    [edit] = editsFor([change], targets);
+  } catch {
+    // No resolvable position is the orphan case, which is counted elsewhere.
+    return false;
+  }
+  return template.slice(edit.start, edit.end) === edit.replacement;
+}
+
 const HEAD_MARKER_BEGIN = 'static-head:begin';
 const HEAD_MARKER_END = 'static-head:end';
 

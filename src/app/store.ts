@@ -13,10 +13,15 @@ import { outerRange } from '../core/htmlIndex';
 import { parseDeclarations } from '../core/css';
 import { bytesToBase64, imageSizeFromBase64 } from '../core/imageMeta';
 import { GitHub, parseRepoInput, type RepoRef } from '../core/github';
-import { describeVersions, type Version } from '../core/history';
-import { verifyHeadTags, type PendingChange } from '../core/publish';
+import {
+  describeVersions, describeSetAside, setAsideKeyFor,
+  type Version, type SetAside,
+} from '../core/history';
+import { verifyHeadTags, alreadyApplied, type PendingChange } from '../core/publish';
 import { liveUrlFor, type DeployObservation } from '../core/deploy';
 import * as db from '../core/db';
+import { gitBlobSha } from '../core/blobSha';
+import { compareBundles, type Comparison } from '../core/compare';
 
 export type Mode = 'page' | 'split' | 'code';
 export type Tab = 'words' | 'pictures' | 'selection';
@@ -41,6 +46,13 @@ export interface HealthState {
    * them and say so.
    */
   orphanedChanges: number;
+  /**
+   * Queued edits the page already satisfies — published, then re-fetched.
+   *
+   * Counted apart from orphans because the remedy is the same but the story
+   * is the opposite: nothing was lost, the work is done.
+   */
+  appliedChanges: number;
   /** The bundle changed since the queued edits were authored. */
   exportDetected: boolean;
 }
@@ -58,8 +70,24 @@ export type SyncState =
   | { kind: 'checking' }
   | { kind: 'up-to-date' }
   | { kind: 'updated'; displaced: boolean }
-  | { kind: 'decision'; remoteSha: string; localSha: string; dirty: number }
   | { kind: 'error'; message: string };
+
+/**
+ * What the last look at GitHub found, without acting on it.
+ *
+ * Distinct from `sync`, which is a conversation in progress, and from
+ * `deploy`, which is about a publish we made. This is the passive answer to
+ * the only question the header asks: is the copy on screen still the site?
+ *
+ * `inSync: false` deliberately does NOT trigger a fetch. A remote that has
+ * moved is not automatically the better version — a bad deploy, a half-landed
+ * push or an edit made elsewhere all look identical from here — so this
+ * records the disagreement and leaves the decision where it belongs.
+ */
+export interface RemoteCheck {
+  checkedAt: number;
+  inSync: boolean;
+}
 
 export interface EditorState {
   ready: boolean;
@@ -79,6 +107,17 @@ export interface EditorState {
   lastPush: number | null;
   sync: SyncState;
   deploy: DeployObservation | null;
+  /** Null until GitHub has actually been asked. Never assumed. */
+  remote: RemoteCheck | null;
+  /**
+   * The working copy differs from the baseline in ways that are not queued
+   * patches — a replaced image, or an older version loaded back.
+   *
+   * Derived, never flagged: it is `gitBlobSha(text) !== sha`, recomputed from
+   * the bytes themselves. A stored boolean would be one more thing that can
+   * disagree with reality, and this is the fact Publish is gated on.
+   */
+  localModified: boolean;
   /**
    * Set when the working copy is an older published version, loaded back.
    *
@@ -92,11 +131,16 @@ export interface EditorState {
 
 const PAGE_FILE_RE = /\.html?$/i;
 
+/** How many displaced working copies to keep. Each is a whole page. */
+const SET_ASIDE_KEEP = 5;
+
 export function useEditor() {
   const [state, setState] = useState<EditorState>({
     ready: false,
     error: null,
     source: null,
+    remote: null,
+    localModified: false,
     restored: null,
     token: null,
     files: [],
@@ -158,6 +202,11 @@ export function useEditor() {
           : source;
         if (source && !source.liveUrl && fixedSource) await db.setMeta('source', fixedSource);
 
+        // Only once there is something to protect: asking on a first run, with
+        // an empty store and nothing connected, spends the one prompt Firefox
+        // gives you on a database holding nothing.
+        if (source) void db.requestPersistence();
+
         const changes = new Map<string, PendingChange>();
         for (const p of patches) {
           if (!p.targetId) { void db.delPatch((p as { id: string }).id); continue; }
@@ -171,9 +220,13 @@ export function useEditor() {
         let health: HealthState | null = null;
         const activeFile = source?.path ?? null;
 
+        let localModified = false;
         if (activeFile) {
           const stored = await db.getFile(activeFile);
           if (stored?.text) {
+            // The baseline is the version GitHub gave us; the text may have
+            // moved on without a patch to show for it.
+            localModified = stored.sha ? (await gitBlobSha(stored.text)) !== stored.sha : false;
             ({ bundle, index, targets, assets, health } = openBundle(stored.text));
             if (health && targets && bundle) {
               health = reconcile(health, changes, targets, bundle.template);
@@ -194,6 +247,7 @@ export function useEditor() {
           assets,
           health,
           changes,
+          localModified,
           lastPush: lastPush ?? null,
         }));
       } catch (e) {
@@ -253,6 +307,7 @@ export function useEditor() {
         };
         await db.setToken(input.token);
         await db.setMeta('source', source);
+        void db.requestPersistence();
         await db.setMeta('files', files);
 
         setState((s) => ({
@@ -261,6 +316,7 @@ export function useEditor() {
           token: input.token,
           source,
           files,
+          localModified: false,
           activeFile: page.path,
           ...opened,
           selection: { targetId: null, elementId: null },
@@ -280,6 +336,30 @@ export function useEditor() {
    * whenever the remote had moved — the exact "never overwrite a changed
    * working copy without an explicit reviewed choice" failure.
    */
+  /**
+   * Look, record, and do nothing else.
+   *
+   * Runs on open so the header can stop guessing. It never writes to the
+   * working copy, never raises a dialog and never reports an error: a failed
+   * look is simply not an observation, and leaving `remote` null says exactly
+   * that. Everything it could tell you is available on demand from the source
+   * box, which is where acting on it belongs.
+   */
+  const observeRemote = useCallback(async (): Promise<void> => {
+    if (!state.source || !state.token || !online) return;
+    try {
+      const gh = new GitHub(state.token);
+      const head = await gh.getBranchHead(state.source);
+      const tree = await gh.listTree(state.source, head.treeSha);
+      const page = tree.find((t) => t.path === state.source!.path);
+      if (!page) return;
+      const stored = await db.getFile(state.source.path);
+      patch({ remote: { checkedAt: Date.now(), inSync: page.sha === (stored?.sha ?? '') } });
+    } catch {
+      // No observation is the correct outcome of a look that did not work.
+    }
+  }, [state.source, state.token, online, patch]);
+
   const checkRemote = useCallback(async (): Promise<void> => {
     if (!state.source || !state.token) return;
     if (!online) {
@@ -296,23 +376,43 @@ export function useEditor() {
 
       const stored = await db.getFile(state.source.path);
       const localSha = stored?.sha ?? '';
-      const dirty = state.changes.size;
 
       if (page.sha === localSha) {
-        patch({ sync: { kind: 'up-to-date' } });
+        patch({ sync: { kind: 'up-to-date' }, remote: { checkedAt: Date.now(), inSync: true } });
         return;
       }
-      if (dirty > 0) {
-        // Remote moved and there is unpublished work. Stop and ask.
-        patch({ sync: { kind: 'decision', remoteSha: page.sha, localSha, dirty } });
-        return;
-      }
-      await applyRemote(page.sha);
-      patch({ sync: { kind: 'updated', displaced: false } });
+      // Observe and stop, exactly as the check on open does. Pressing the
+      // button is a request to look, not a licence to overwrite: a remote that
+      // has moved may be a bad deploy or a half-landed push, and nothing here
+      // can tell those from a good edit made elsewhere. Recording the
+      // disagreement raises the out-of-sync warning, where both ways out are
+      // offered as equals.
+      patch({ sync: { kind: 'idle' }, remote: { checkedAt: Date.now(), inSync: false } });
     } catch (e) {
       patch({ sync: { kind: 'error', message: (e as Error).message } });
     }
   }, [state.source, state.token, state.changes, online, patch]);
+
+  /**
+   * Fetch GitHub's version and say what differs, without touching anything.
+   *
+   * Deliberately separate from the cheap sha check that runs on open: this
+   * pulls the whole file, so it only happens once the shas already disagree
+   * and there is something to explain.
+   */
+  const describeDrift = useCallback(async (): Promise<Comparison | null> => {
+    const s = stateRef.current;
+    if (!s.source || !s.token) return null;
+    const gh = new GitHub(s.source ? s.token : '');
+    const head = await gh.getBranchHead(s.source);
+    const tree = await gh.listTree(s.source, head.treeSha);
+    const page = tree.find((t) => t.path === s.source!.path);
+    if (!page) throw new Error('The page file is gone from the repository.');
+    const theirs = await gh.getBlobText(s.source, page.sha);
+    const mine = await db.getFile(s.source.path);
+    if (!mine?.text) return null;
+    return compareBundles(mine.text, theirs);
+  }, []);
 
   /**
    * Replace the working copy with GitHub's version.
@@ -336,11 +436,16 @@ export function useEditor() {
     let displaced = false;
     if (previous?.text) {
       await db.putFile({
-        path: `__displaced/${Date.now()}/${state.source.path}`,
+        path: setAsideKeyFor(state.source.path, Date.now()),
         text: previous.text,
         sha: previous.sha,
       });
       displaced = true;
+      // Each of these is a whole page — 2 MB on this site. Keeping every one
+      // forever would grow without limit for a feature that is about the last
+      // wrong move, not the whole year.
+      const kept = describeSetAside(await db.allFilePaths());
+      for (const old of kept.slice(SET_ASIDE_KEEP)) await db.delFile(old.key);
     }
 
     const text = await gh.getBlobText(state.source, page.sha);
@@ -353,14 +458,47 @@ export function useEditor() {
       const health = opened.health && opened.targets
         ? reconcile(opened.health, s.changes, opened.targets, opened.bundle!.template)
         : opened.health;
-      return { ...s, source, ...opened, health, sync: { kind: 'updated', displaced } };
+      return {
+        ...s, source, ...opened, health, localModified: false,
+        // We have just written GitHub's exact blob as the working copy and
+        // adopted its sha as the baseline, so this is in sync by construction.
+        // Without it the header went on saying "site has changed" after the
+        // user had already resolved it.
+        remote: { checkedAt: Date.now(), inSync: true },
+        sync: { kind: 'updated', displaced },
+      };
     });
   }, [state.source, state.token]);
 
-  /** Keep the local working copy. Never schedules a forced remote overwrite. */
-  const keepLocal = useCallback(() => {
-    patch({ sync: { kind: 'idle' } });
-  }, [patch]);
+  /**
+   * Put a set-aside copy back as the working copy.
+   *
+   * The baseline is deliberately left alone: this text is not a version GitHub
+   * ever handed us, so restoring it puts the copy out of step again — which is
+   * the truth, and what the header should say.
+   */
+  const restoreSetAside = useCallback(async (key: string) => {
+    const s = stateRef.current;
+    if (!s.source) return;
+    const kept = await db.getFile(key);
+    if (!kept?.text) throw new Error('That set-aside copy is no longer here.');
+    const opened = openBundle(kept.text);
+    if (!opened.bundle) throw new Error('That copy is not a page this editor can open.');
+    const base = await db.getFile(s.source.path);
+    const sha = base?.sha ?? '';
+    await db.putFile({ path: s.source.path, text: kept.text, sha });
+    // Derived, like everywhere else. A set-aside copy usually differs from the
+    // baseline, but it does not have to — asserting that it does would be the
+    // stored-flag mistake in a new place.
+    const localModified = sha ? (await gitBlobSha(kept.text)) !== sha : false;
+    setState((cur) => ({
+      ...cur, ...opened, localModified, restored: null,
+    }));
+  }, []);
+
+  const loadSetAside = useCallback(async (): Promise<SetAside[]> => {
+    return describeSetAside(await db.allFilePaths());
+  }, []);
 
   const dismissSync = useCallback(() => patch({ sync: { kind: 'idle' } }), [patch]);
 
@@ -511,8 +649,12 @@ export function useEditor() {
 
     const manifest = { ...s.bundle.manifest, [uuid]: { ...entry, mime, data, compressed: false } };
     const nextFile = serializeBundle(s.bundle, { manifest });
-    await db.putFile({ path: s.source.path, text: nextFile, sha: '' });
-    setState((cur) => ({ ...cur, ...openBundle(nextFile) }));
+    // Keep the baseline sha. This is our own unpublished work, not evidence
+    // that GitHub moved — clearing it here is what made a replaced image read
+    // as "the site has changed".
+    const base = await db.getFile(s.source.path);
+    await db.putFile({ path: s.source.path, text: nextFile, sha: base?.sha ?? '' });
+    setState((cur) => ({ ...cur, ...openBundle(nextFile), localModified: true }));
 
     const differs = before && (before.width !== after.width || before.height !== after.height);
     return {
@@ -644,9 +786,14 @@ export function useEditor() {
     // working page with one that opens to an error.
     const opened = openBundle(text);
     if (!opened.bundle) throw new Error('That version is not a page this editor can open.');
-    await db.putFile({ path: s.source.path, text, sha: '' });
+    // Baseline preserved: the site has not moved because you looked backwards.
+    // `restored` does not survive a reload, so this is what keeps a restored
+    // copy from reporting itself as matching the live site tomorrow.
+    const base = await db.getFile(s.source.path);
+    await db.putFile({ path: s.source.path, text, sha: base?.sha ?? '' });
     setState((cur) => ({
       ...cur,
+      localModified: true,
       ...opened,
       changes: new Map(),
       selection: { targetId: null, elementId: null },
@@ -662,21 +809,48 @@ export function useEditor() {
     const api = new GitHub(s.token);
     const head = await api.getBranchHead(s.source);
     const text = await api.fileAtCommit(s.source, head.commitSha, s.source.path);
-    await db.putFile({ path: s.source.path, text, sha: '' });
-    setState((cur) => ({ ...cur, ...openBundle(text), changes: new Map(), restored: null }));
+    // Head's own bytes, so this genuinely is the baseline again.
+    await db.putFile({ path: s.source.path, text, sha: await gitBlobSha(text) });
+    setState((cur) => ({
+      ...cur, ...openBundle(text), changes: new Map(), restored: null, localModified: false,
+    }));
   }, []);
 
   /** After a successful publish the edited values become the new baseline. */
-  const commitPublished = useCallback(async (commitSha: string | null, fileText: string) => {
+  const commitPublished = useCallback(async (_commitSha: string | null, fileText: string) => {
     await db.clearPatches();
     const now = Date.now();
     await db.setMeta('lastPush', now);
+    // The blob sha, not the commit sha the push returned. The sync check
+    // compares against the blob sha in GitHub's tree, so storing the commit
+    // sha here made every later check report a site that had changed.
+    const sha = await gitBlobSha(fileText);
     setState((s) => {
-      if (s.source) void db.putFile({ path: s.source.path, text: fileText, sha: commitSha ?? '' });
+      if (s.source) void db.putFile({ path: s.source.path, text: fileText, sha });
       return {
         ...s, changes: new Map(), lastPush: now, deploy: null, restored: null,
+        // We have just made the live page out of exactly these bytes, so this
+        // is an observation, not an assumption.
+        remote: { checkedAt: now, inSync: true },
+        localModified: false,
         ...openBundle(fileText),
       };
+    });
+  }, []);
+
+  /** Forget queued edits the page already satisfies. */
+  const dropApplied = useCallback(() => {
+    setState((s) => {
+      if (!s.targets || !s.bundle) return s;
+      const changes = new Map(s.changes);
+      for (const [id, c] of changes) {
+        if (alreadyApplied(c, s.targets.byId, s.bundle.template)) {
+          changes.delete(id);
+          void db.delPatch(id);
+        }
+      }
+      const health = s.health ? { ...s.health, appliedChanges: 0 } : null;
+      return { ...s, changes, health };
     });
   }, []);
 
@@ -688,7 +862,7 @@ export function useEditor() {
       for (const [id] of changes) {
         if (!s.targets.byId.has(id)) { changes.delete(id); void db.delPatch(id); }
       }
-      const health = s.health ? { ...s.health, orphanedChanges: 0, exportDetected: false } : null;
+      const health = s.health ? { ...s.health, orphanedChanges: 0, appliedChanges: 0, exportDetected: false } : null;
       return { ...s, changes, health };
     });
   }, []);
@@ -722,9 +896,9 @@ export function useEditor() {
 
   return {
     state, online, manualOffline, setManualOffline,
-    connect, checkRemote, applyRemote, keepLocal, dismissSync, editElementHtml, replaceImage, applyOverride,
+    connect, checkRemote, observeRemote, applyRemote, describeDrift, dismissSync, editElementHtml, replaceImage, applyOverride,
     edit, undo, select, commitPublished, disconnect, dropOrphans, setDeploy,
-    loadHistory, restoreVersion, discardRestore,
+    loadHistory, restoreVersion, discardRestore, dropApplied, loadSetAside, restoreSetAside,
     valueOf, changeList, patch,
   };
 }
@@ -743,8 +917,10 @@ function reconcile(
 ): HealthState {
   const fp = db.fingerprint(template);
   let orphaned = 0;
+  let applied = 0;
   let stale = false;
   for (const c of changes.values()) {
+    if (alreadyApplied(c, targets.byId, template)) { applied++; continue; }
     // Some changes carry their own range and are deliberately absent from the
     // target map — a code edit spans a whole element, a scoped override spans a
     // whole style attribute, and both would overlap every target inside them.
@@ -754,7 +930,10 @@ function reconcile(
     const patch = c as Partial<db.StoredPatch>;
     if (patch.baseFingerprint && patch.baseFingerprint !== fp) stale = true;
   }
-  return { ...health, orphanedChanges: orphaned, exportDetected: stale && orphaned > 0 };
+  return {
+    ...health, orphanedChanges: orphaned, appliedChanges: applied,
+    exportDetected: stale && orphaned > 0,
+  };
 }
 
 function openBundle(
@@ -776,6 +955,7 @@ function openBundle(
       stringsIndexed: index.strings.length,
       imagesFound: assets.filter((a) => a.kind === 'image').length,
       orphanedChanges: 0,
+      appliedChanges: 0,
       exportDetected: false,
     },
   };

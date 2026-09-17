@@ -1,0 +1,4 @@
+# Every source file in this repo is LF. Pinned because a tool writing files
+# in text mode on Windows silently rewrote the whole tree to CRLF once, which
+# turned a week of work into an unreviewable diff.
+* text=auto eol=lf

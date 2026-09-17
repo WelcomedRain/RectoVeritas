@@ -79,6 +79,13 @@ export async function getFile(path: string): Promise<Schema['files']['value'] | 
 export async function allFiles(): Promise<Schema['files']['value'][]> {
   return (await db()).getAll('files');
 }
+/** Keys only. `allFiles` would pull every 2 MB body to answer a question about names. */
+export async function allFilePaths(): Promise<string[]> {
+  return (await db()).getAllKeys('files') as Promise<string[]>;
+}
+export async function delFile(path: string): Promise<void> {
+  await (await db()).delete('files', path);
+}
 export async function clearFiles(): Promise<void> {
   await (await db()).clear('files');
 }
@@ -123,4 +130,28 @@ export async function setToken(t: string): Promise<void> {
 }
 export async function clearToken(): Promise<void> {
   await delMeta(TOKEN_KEY);
+}
+
+/**
+ * Ask the browser not to evict the working copy.
+ *
+ * Without this the store is "best effort": the browser may clear it under disk
+ * pressure, at any time, with no warning and no way back. That is the wrong
+ * guarantee for the only copy of edits that have not been published yet — the
+ * whole premise of the app is that you can work offline for an unbounded period
+ * before pressing anything.
+ *
+ * Chromium grants it silently for an installed PWA and refuses silently
+ * otherwise; Firefox prompts. So this is a request, not a setting: it reports
+ * what it got rather than assuming, and a refusal is not an error worth
+ * interrupting anyone over.
+ */
+export async function requestPersistence(): Promise<boolean> {
+  if (!navigator.storage?.persist) return false;
+  try {
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
 }

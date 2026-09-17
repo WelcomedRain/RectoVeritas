@@ -96,3 +96,39 @@ export function canRestore(
   }
   return { ok: true };
 }
+
+/**
+ * A working copy that was set aside to make room for GitHub's version.
+ *
+ * These were being written and never read — one `__displaced/...` key in the
+ * whole codebase, at the line that creates it. The safety they were meant to
+ * provide existed only for someone willing to open devtools, which is the same
+ * gap this module was written to close for published versions.
+ *
+ * They are local and unpublished, so they have no sha and no commit message.
+ * What identifies one is when it was set aside.
+ */
+export interface SetAside {
+  /** The IndexedDB key it is stored under. */
+  key: string;
+  when: number;
+  ago: string;
+}
+
+const SET_ASIDE_PREFIX = '__displaced/';
+
+export function setAsideKeyFor(path: string, when: number): string {
+  return `${SET_ASIDE_PREFIX}${when}/${path}`;
+}
+
+export function describeSetAside(keys: string[], now = Date.now()): SetAside[] {
+  return keys
+    .filter((k) => k.startsWith(SET_ASIDE_PREFIX))
+    .map((key) => {
+      const when = Number(key.slice(SET_ASIDE_PREFIX.length).split('/')[0]);
+      return { key, when: Number.isFinite(when) ? when : 0, ago: '' };
+    })
+    .filter((v) => v.when > 0)
+    .sort((a, b) => b.when - a.when)
+    .map((v) => ({ ...v, ago: relativeTime(v.when, now) }));
+}

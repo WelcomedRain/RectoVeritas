@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { AssetInfo, Bundle } from '../core/bundle';
 import { assetDataUrl } from '../core/bundle';
 import { imageSizeFromBase64, formatSize } from '../core/imageMeta';
@@ -32,6 +32,9 @@ export function autosize(el: HTMLTextAreaElement | null) {
 }
 
 /* ------------------------------- Words ------------------------------- */
+
+/** Height of one section heading. The stacking offset is a multiple of it. */
+const BAND_HEAD_H = 30;
 
 export function WordsPanel({
   index, valueOf, onEdit, onFocus, changes, selectedId, onSelectElement,
@@ -131,9 +134,14 @@ export function WordsPanel({
         const holdsSelection = selectedId != null && b.entries.some((e) => e.id === selectedId);
         const open = openBands[b.key] ?? (!b.shut || holdsSelection);
         return (
-          <section className={`band ${i % 2 ? 'alt' : ''} ${open ? '' : 'shut'}`} key={b.key}>
+          <Fragment key={b.key}>
             <button
               className="band-head"
+              /* Stack, rather than replace. Each heading parks one slot
+                 lower than the one before, so the sections you have already
+                 passed stay on screen: you can see where you are, and click
+                 straight back to an earlier one. */
+              style={{ top: i * BAND_HEAD_H - 10 }}
               aria-expanded={open}
               onClick={() => setOpenBands((o) => ({ ...o, [b.key]: !open }))}
             >
@@ -141,6 +149,7 @@ export function WordsPanel({
               <span className="band-name" title={b.label}>{b.label}</span>
               <span className="band-count">{b.entries.length}</span>
             </button>
+            <div className={`band ${i % 2 ? 'alt' : ''} ${open ? '' : 'shut'}`}>
             {open && b.note && <p className="band-note">{b.note}</p>}
             {open && (b.section
               ? clusterByOwner(index, b.entries, b.section).map((c, ci) => (
@@ -162,7 +171,8 @@ export function WordsPanel({
                   )
               ))
               : b.entries.map(field))}
-          </section>
+            </div>
+          </Fragment>
         );
       })}
     </div>
@@ -463,7 +473,7 @@ export function SelectionPanel({
     // No editable words, but the element may still be worth styling — which is
     // the usual case for a button or an image.
     return (
-      <div className="panel">
+      <div className="panel panel-select">
         {element ? (
           <>
             {trail}
@@ -482,7 +492,7 @@ export function SelectionPanel({
     );
   }
   return (
-    <div className="panel">
+    <div className="panel panel-select">
       {trail}
       <table className="proptable">
         <tbody>
