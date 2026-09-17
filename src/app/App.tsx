@@ -706,7 +706,11 @@ export function App() {
           })}
         >
           Publish changes
+          {/* A replaced image queues no edit, so there is no number to show —
+              but showing nothing read as "nothing to publish" while the header
+              and footer both said otherwise. A mark says "something, uncounted". */}
           {dirty > 0 && <span className="badge">{dirty}</span>}
+          {dirty === 0 && state.localModified && <span className="badge">&bull;</span>}
         </button>
       </header>
 
@@ -1060,6 +1064,7 @@ export function App() {
           dest={pub.dest}
           onDest={(d) => setPub((p) => ({ ...p, dest: d }))}
           everPublishedLive={state.lastPush !== null}
+          unlisted={state.localModified}
           onPublish={doPublish}
           onClose={() => setPub({
             open: false, phase: 'review', steps: [], outcome: null, error: null,

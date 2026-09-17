@@ -246,7 +246,7 @@ export function SyncDialog({
 
 export function PublishDialog({
   phase, changes, steps, outcome, error, online, deploy,
-  destinations, dest, onDest, everPublishedLive, onPublish, onClose,
+  destinations, dest, onDest, everPublishedLive, unlisted, onPublish, onClose,
 }: {
   phase: 'review' | 'running' | 'done';
   changes: PendingChange[];
@@ -259,6 +259,14 @@ export function PublishDialog({
   dest: DestinationId;
   onDest: (d: DestinationId) => void;
   everPublishedLive: boolean;
+  /**
+   * The working copy differs from its baseline in a way that has no entry in
+   * `changes` — a replaced image writes straight into the file, and so does a
+   * restored version. Publishing carries it either way, so a dialog that
+   * counted only the listed changes would say "0 changes will go to…" and then
+   * ship one.
+   */
+  unlisted: boolean;
   onPublish: () => void;
   onClose: () => void;
 }) {
@@ -273,7 +281,10 @@ export function PublishDialog({
           <div>
             <h2>Publish your changes</h2>
             <p style={{ marginTop: 6 }}>
-              {changes.length} change{changes.length === 1 ? '' : 's'}
+              {changes.length > 0
+                ? `${changes.length} change${changes.length === 1 ? '' : 's'}`
+                : 'A change to the page file'}
+              {changes.length > 0 && unlisted && ', and a change to the page file,'}
               {target ? <> will go to <b>{target.url}</b></> : ' will be published'}.
             </p>
           </div>
@@ -330,6 +341,17 @@ export function PublishDialog({
               </div>
             ))}
           </div>
+
+          {unlisted && (
+            <div className="change">
+              <div className="head"><span className="label">Not listed above</span></div>
+              <div className="from" style={{ background: 'transparent', padding: '2px 0' }}>
+                A replaced image, or a version loaded back from History, is written
+                straight into the page file rather than queued as an edit. It has no
+                before-and-after to show here, and it will publish with the rest.
+              </div>
+            </div>
+          )}
 
           <div className="actions">
             {/* The button names its target. The selector above it already did,
