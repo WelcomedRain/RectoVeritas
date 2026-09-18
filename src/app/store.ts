@@ -110,6 +110,12 @@ export interface EditorState {
   /** Null until GitHub has actually been asked. Never assumed. */
   remote: RemoteCheck | null;
   /**
+   * A publish reached GitHub in this session. Deliberately not persisted:
+   * `lastPush` already records that one ever did, and the two answer different
+   * questions.
+   */
+  pushedThisSession: boolean;
+  /**
    * Assets replaced since the last sync, by uuid.
    *
    * Tracked rather than inferred. An image replacement writes into the page
@@ -149,6 +155,7 @@ export function useEditor() {
     error: null,
     source: null,
     remote: null,
+    pushedThisSession: false,
     replacedImages: [],
     localModified: false,
     restored: null,
@@ -856,6 +863,7 @@ export function useEditor() {
         // is an observation, not an assumption.
         remote: { checkedAt: now, inSync: true },
         localModified: false,
+        pushedThisSession: true,
         replacedImages: [],
         ...openBundle(fileText),
       };

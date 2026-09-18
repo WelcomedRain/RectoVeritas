@@ -612,6 +612,7 @@ export function App() {
     dirty,
     remote: state.remote,
     localModified: state.localModified,
+    pushedThisSession: state.pushedThisSession,
     networkUp: state.online,
     manualOffline: ed.manualOffline,
     // While the dialog is open it is the authority on where this publish is

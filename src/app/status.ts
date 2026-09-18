@@ -104,6 +104,16 @@ export function statusLine(o: {
   remote?: { inSync: boolean } | null;
   /** Unpublished work with no patch to count — a replaced image, a restore. */
   localModified?: boolean;
+  /**
+   * A publish reached GitHub during THIS session.
+   *
+   * Distinct from `lastPush`, which is persisted and so is true forever after
+   * the first successful publish. Reading that as "pushed" made the footer
+   * report a push from days ago as though it had just happened, in every
+   * session that followed, while the header beside it said the copy matched
+   * the site.
+   */
+  pushedThisSession?: boolean;
 }): StatusLine {
   const host = publishTarget(o.publishTo);
   // A restore replaces the page wholesale and so produces no edits. Counting
@@ -150,17 +160,22 @@ export function statusLine(o: {
         text: 'The site has changed since you opened this copy',
         tone: 'waiting' as const,
       }
-      : !o.deploy && !o.lastPush && !o.remote
+      : o.deploy || o.pushedThisSession
         ? {
-          // The old wording here asserted a match on the strength of having
-          // nothing queued, which is a different fact entirely.
-          text: 'Working copy not checked against the live site',
-          tone: 'unknown' as const,
-        }
-        : {
+          // Only while a publish from this session is still the freshest thing
+          // known. A deployment observation outranks everything below it
+          // because it is the only line here that watched the served page.
           text: deployLabel(o.deploy, o.lastPush),
           tone: deployTone(o.deploy, o.lastPush),
-        };
+        }
+        : o.remote
+          ? { text: deployLabel(null, null), tone: 'match' as const }
+          : {
+            // Asserting a match on the strength of having nothing queued is a
+            // different fact entirely, so it is not asserted.
+            text: 'Working copy not checked against the live site',
+            tone: 'unknown' as const,
+          };
 
   // The trap this separates: `online` was one flag standing for two unrelated
   // things. Flipping the header switch for a test and forgetting produced

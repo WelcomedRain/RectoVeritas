@@ -35,10 +35,35 @@ describe('the status line', () => {
     expect(s.pending.text).toMatch(/site has changed/i);
   });
 
+  /**
+   * `lastPush` is persisted, so reading it as "pushed" made the footer announce
+   * a push from days ago in every session that followed — next to a header
+   * saying the copy matched the site.
+   */
+  it('does not report an old session’s push as news', () => {
+    const s = statusLine({ ...base, lastPush: 1, remote: { inSync: true } });
+    expect(s.pending.text).not.toMatch(/pushed/i);
+    expect(s.pending.tone).toBe('match');
+  });
+
+  it('does report a push made in this session', () => {
+    const s = statusLine({
+      ...base, lastPush: 1, pushedThisSession: true, remote: { inSync: true },
+    });
+    expect(s.pending.text).toMatch(/pushed/i);
+  });
+
+  it('lets a deployment observation outrank both', () => {
+    const verified = { state: 'verified' as const, detail: '', checkedAt: 0, attempts: 1 };
+    const s = statusLine({ ...base, lastPush: 1, deploy: verified, remote: { inSync: true } });
+    expect(s.pending.text).toMatch(/serving your change/i);
+  });
+
   it('will not call an unverified push a match', () => {
-    // Pushed, never observed. Green here would be the app asserting something
-    // it did not check.
-    expect(statusLine({ ...base, dirty: 0, lastPush: 1 }).pending.tone).toBe('unknown');
+    // Pushed in this session, never observed. Green here would be the app
+    // asserting something it did not check.
+    expect(statusLine({ ...base, dirty: 0, lastPush: 1, pushedThisSession: true }).pending.tone)
+      .toBe('unknown');
   });
 
   it('is waiting while the live site has not caught up', () => {
@@ -61,8 +86,11 @@ describe('the status line', () => {
       '2 changes waiting · Publish sends them to antheasolve.com');
   });
 
-  it('falls back to the deployment state when nothing is queued', () => {
-    expect(statusLine({ ...base, dirty: 0, lastPush: 1 }).pending.text).toMatch(/GitHub/);
+  it('falls back to the deployment state for a push made in this session', () => {
+    // A bare `lastPush` no longer qualifies: it is persisted, so it is true in
+    // every session after the first successful publish.
+    expect(statusLine({ ...base, dirty: 0, lastPush: 1, pushedThisSession: true }).pending.text)
+      .toMatch(/GitHub/);
   });
 
   it('still reports the count when the destination is not known yet', () => {
