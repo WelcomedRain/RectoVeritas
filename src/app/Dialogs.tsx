@@ -323,11 +323,14 @@ export function PublishDialog({
             </div>
           )}
 
+          {/* The fact and the suggestion. The reasoning that used to follow —
+              why an untested publish path is worth trying somewhere cheap — is
+              obvious to anyone reading it, and noise after the first time. It
+              also opened with "Nothing has ever been published", which reads as
+              a claim about the site rather than about this editor. */}
           {!everPublishedLive && dest === 'live' && (
             <div className="banner-err">
-              Nothing has ever been published from this editor, so the publish path
-              itself is untested. If something is wrong with it, the homepage is a
-              costly place to find out. Preview first is the cheaper order.
+              No live publish has been done from this editor yet. Consider Preview first.
             </div>
           )}
 
