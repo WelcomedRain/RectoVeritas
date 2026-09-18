@@ -246,7 +246,8 @@ export function SyncDialog({
 
 export function PublishDialog({
   phase, changes, steps, outcome, error, online, deploy,
-  destinations, dest, onDest, everPublishedLive, images, unlisted, onPublish, onClose,
+  destinations, dest, onDest, everPublishedLive, images, unlisted, restored,
+  onPublish, onClose,
 }: {
   phase: 'review' | 'running' | 'done';
   changes: PendingChange[];
@@ -269,6 +270,8 @@ export function PublishDialog({
   unlisted: boolean;
   /** Images replaced since the last sync. Counted, because the app knows. */
   images: number;
+  /** Set only while a version loaded back from History is still on screen. */
+  restored: boolean;
   onPublish: () => void;
   onClose: () => void;
 }) {
@@ -292,8 +295,10 @@ export function PublishDialog({
                   ? `${changes.length} change${changes.length === 1 ? '' : 's'}`
                   : null,
                 images > 0 ? `${images} replaced image${images === 1 ? '' : 's'}` : null,
-                unlisted && images === 0 ? 'a version loaded back' : null,
-              ].filter(Boolean).join(' and ') || 'Nothing'}
+                unlisted && images === 0
+                  ? (restored ? 'a version loaded back' : 'an unrecorded change')
+                  : null,
+              ].filter(Boolean).join(' and ').replace(/^./, (ch) => ch.toUpperCase()) || 'Nothing'}
               {target ? <> will go to <b>{target.url}</b></> : ' will be published'}.
             </p>
           </div>
@@ -357,15 +362,25 @@ export function PublishDialog({
                 <span className="label">
                   {images > 0
                     ? `${images} replaced image${images === 1 ? '' : 's'}`
-                    : 'A version loaded back'}
+                    : restored
+                      ? 'A version loaded back'
+                      : 'An unrecorded change to the page file'}
                 </span>
               </div>
               <div className="from" style={{ background: 'transparent', padding: '2px 0' }}>
+                {/* Says what is known and stops. Naming a cause here was wrong:
+                    all the app has established is that the file differs from the
+                    version it came from and it has no record of why. */}
                 {images > 0
                   ? 'Written straight into the page file rather than queued as an edit, '
                     + 'so there is no before-and-after to show here. It publishes with the rest.'
-                  : 'The page file was replaced wholesale, so there are no individual edits '
-                    + 'to list. It publishes with the rest.'}
+                  : restored
+                    ? 'The page file was replaced wholesale by the version you loaded back, so '
+                      + 'there are no individual edits to list. It publishes with the rest.'
+                    : 'The page file differs from the version it came from, and there is no '
+                      + 'record here of what changed it — an image replaced before this app '
+                      + 'started recording them will look like this. Whatever it is, it is in '
+                      + 'the file and publishes with the rest.'}
               </div>
             </div>
           )}

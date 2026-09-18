@@ -1068,6 +1068,7 @@ export function App() {
           everPublishedLive={state.lastPush !== null}
           unlisted={state.localModified}
           images={state.replacedImages.length}
+          restored={state.restored !== null}
           onPublish={doPublish}
           onClose={() => setPub({
             open: false, phase: 'review', steps: [], outcome: null, error: null,
