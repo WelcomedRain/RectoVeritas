@@ -162,11 +162,6 @@ const BRIDGE = String.raw`
    * menu that is display:none at this width, or a tag in <head>, takes the
    * change perfectly well and shows nothing for it.
    */
-  function renders(el) {
-    if (!el || !document.body.contains(el)) return false;
-    return el.getClientRects().length > 0;
-  }
-
   /**
    * The override sheet used to preview stylesheet-rule edits.
    *
@@ -217,10 +212,19 @@ const BRIDGE = String.raw`
         'This is a page-information tag. It changes link previews and search results, '
         + 'not anything you can see on the page.');
     }
-    if (!renders(el)) {
-      ack(m, 'hidden',
-        'The element it belongs to is not drawn at this width — it may only appear on '
-        + 'another device size, or be hidden until something opens it.');
+    /* Two different failures, told apart. These were one test whose single
+       answer was reported as "not drawn at this width" — true of an element
+       with no layout box, and false of one that has left the page entirely,
+       where width has nothing to do with it. Only one of them is a reason to go
+       and look at another device size. */
+    var attached = el && document.body.contains(el);
+    var drawn = attached && el.getClientRects().length > 0;
+    if (!drawn) {
+      ack(m, 'hidden', attached
+        ? 'The element it belongs to is not drawn at this width — it may only appear on '
+          + 'another device size, or be hidden until something opens it.'
+        : 'The element this applied to is no longer in the rendered page, so there is '
+          + 'nothing here to show it on.');
       if (settle !== false) setTimeout(function () { ackNode(m, el, false); }, 400);
       return;
     }

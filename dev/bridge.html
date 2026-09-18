@@ -145,6 +145,29 @@ await wait(120);
 const droppedRule = !sheetOf().includes('.harness-nothing');
 const keptOthers = sheetOf().includes('@media (max-width: 320px)');
 
+// An element that leaves the page after the change was applied to it. This
+// used to be reported as "not drawn at this width", which is true of an element
+// with no layout box and false of one that is not there at all — and only the
+// first is a reason to go looking at another device size.
+// Staged through the settle retry, which is the only route to it: the bridge
+// re-checks a verdict only after deciding something was not drawn, so an
+// element that was happily shown and then removed produces no second opinion.
+// Hide it first to earn the retry, then remove it before the retry lands.
+const gone = index.strings.find((s) => s.kind === 'text' && s.tag === 'p');
+const victim = frame.contentDocument.querySelector('[data-recto-id="' + gone?.elementId + '"]');
+if (victim) victim.style.display = 'none';
+send({
+  type: 'recto:set-text', id: 'c-detached',
+  elementId: gone?.elementId, runOrdinal: gone?.runOrdinal ?? 0, value: 'DETACHED PROBE',
+});
+await wait(150);
+const firstVerdict = acks.get('c-detached');
+if (victim) victim.remove();
+await wait(700);
+const detached = acks.get('c-detached');
+const detachedOk = !!detached && detached.result === 'hidden'
+  && /no longer in the rendered page/i.test(detached.why);
+
 let pass = 0, fail = 0;
 const rows = cases.map((c) => {
   const got = acks.get(c.msg.id);
@@ -158,6 +181,9 @@ const extra = [
   ['override sheet received the rule', hadRule],
   ['drop-rule removed it', droppedRule],
   ['drop-rule left the other rules alone', keptOthers],
+  ['an element with no box is blamed on the width',
+    !!firstVerdict && /not drawn at this width/i.test(firstVerdict.why)],
+  ['an element that left the page is not blamed on the width', detachedOk],
 ].map(([n, ok]) => {
   ok ? pass++ : fail++;
   return `<tr><td>${n}</td><td>true</td><td class="${ok ? 'pass' : 'fail'}">${ok}</td><td></td><td></td></tr>`;
