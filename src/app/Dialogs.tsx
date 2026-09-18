@@ -296,7 +296,7 @@ export function PublishDialog({
                   : null,
                 images > 0 ? `${images} replaced image${images === 1 ? '' : 's'}` : null,
                 unlisted && images === 0
-                  ? (restored ? 'a version loaded back' : 'an unrecorded change')
+                  ? (restored ? 'a version loaded back' : 'an unrecorded edit')
                   : null,
               ].filter(Boolean).join(' and ').replace(/^./, (ch) => ch.toUpperCase()) || 'Nothing'}
               {target ? <> will go to <b>{target.url}</b></> : ' will be published'}.
@@ -364,23 +364,26 @@ export function PublishDialog({
                     ? `${images} replaced image${images === 1 ? '' : 's'}`
                     : restored
                       ? 'A version loaded back'
-                      : 'An unrecorded change to the page file'}
+                      : 'An unrecorded edit'}
                 </span>
               </div>
               <div className="from" style={{ background: 'transparent', padding: '2px 0' }}>
-                {/* Says what is known and stops. Naming a cause here was wrong:
-                    all the app has established is that the file differs from the
-                    version it came from and it has no record of why. */}
+                {/* Says what is known and stops. The earlier wording named a cause
+                    the app had not established, and described the whole dialog
+                    ("no individual edits to list") when the card is about one item
+                    and edits were listed directly above it. The "other edits" tail
+                    is conditional because this is often the only change there is. */}
                 {images > 0
-                  ? 'Written straight into the page file rather than queued as an edit, '
-                    + 'so there is no before-and-after to show here. It publishes with the rest.'
+                  ? `This image is written straight into the page rather than queued as an `
+                    + `edit, so there is no before and after to show. It will publish`
+                    + `${changes.length > 0 ? ' along with the other edits.' : '.'}`
                   : restored
-                    ? 'The page file was replaced wholesale by the version you loaded back, so '
-                      + 'there are no individual edits to list. It publishes with the rest.'
-                    : 'The page file differs from the version it came from, and there is no '
-                      + 'record here of what changed it — an image replaced before this app '
-                      + 'started recording them will look like this. Whatever it is, it is in '
-                      + 'the file and publishes with the rest.'}
+                    ? `This page was replaced by the version you loaded back, so there is no `
+                      + `before and after to show. It will publish`
+                      + `${changes.length > 0 ? ' along with the other edits.' : '.'}`
+                    : `This page differs from the site and there is no record of what changed, `
+                      + `but it is present and will publish`
+                      + `${changes.length > 0 ? ' along with the other edits.' : '.'}`}
               </div>
             </div>
           )}
