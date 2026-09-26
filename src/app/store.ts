@@ -26,12 +26,6 @@ import { compareBundles, type Comparison } from '../core/compare';
 export type Mode = 'page' | 'split' | 'code';
 export type Tab = 'words' | 'pictures' | 'selection';
 
-export interface RepoFileEntry {
-  path: string;
-  size: number;
-  sha: string;
-}
-
 export interface HealthState {
   headTagsInHead: boolean;
   headDetail: string;
@@ -94,7 +88,6 @@ export interface EditorState {
   error: string | null;
   source: db.StoredSource | null;
   token: string | null;
-  files: RepoFileEntry[];
   activeFile: string | null;
   bundle: Bundle | null;
   index: TemplateIndex | null;
@@ -160,7 +153,6 @@ export function useEditor() {
     localModified: false,
     restored: null,
     token: null,
-    files: [],
     activeFile: null,
     bundle: null,
     index: null,
@@ -201,13 +193,13 @@ export function useEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const [token, source, files, patches, lastPush, replacedImages] = await Promise.all([
+        const [token, source, patches, lastPush, replacedImages, restored] = await Promise.all([
           db.getToken(),
           db.getMeta<db.StoredSource>('source'),
-          db.getMeta<RepoFileEntry[]>('files'),
           db.allPatches(),
           db.getMeta<number>('lastPush'),
           db.getMeta<string[]>('replacedImages'),
+          db.getMeta<{ sha: string; short: string; when: number }>('restored'),
         ]);
 
         // Drop records written by an older schema rather than letting an
@@ -257,7 +249,6 @@ export function useEditor() {
           ready: true,
           token: token ?? null,
           source: fixedSource ?? null,
-          files: files ?? [],
           activeFile,
           bundle,
           index,
@@ -269,6 +260,9 @@ export function useEditor() {
           // A list that outlived the divergence it described would name images
           // that are already published.
           replacedImages: localModified ? (replacedImages ?? []) : [],
+          // Same guard as the images: a restore that is no longer on screen is
+          // not worth naming.
+          restored: localModified ? (restored ?? null) : null,
           lastPush: lastPush ?? null,
         }));
       } catch (e) {
@@ -329,16 +323,15 @@ export function useEditor() {
         await db.setToken(input.token);
         await db.setMeta('source', source);
         void db.requestPersistence();
-        await db.setMeta('files', files);
 
         setState((s) => ({
           ...s,
           error: null,
           token: input.token,
           source,
-          files,
           localModified: false,
           replacedImages: [],
+          remote: { checkedAt: Date.now(), inSync: true },
           activeFile: page.path,
           ...opened,
           selection: { targetId: null, elementId: null },
@@ -475,6 +468,7 @@ export function useEditor() {
     const source = { ...state.source, lastFetched: Date.now() };
     await db.setMeta('source', source);
 
+    void db.delMeta('restored');
     setState((s) => {
       const opened = openBundle(text);
       const health = opened.health && opened.targets
@@ -482,6 +476,7 @@ export function useEditor() {
         : opened.health;
       return {
         ...s, source, ...opened, health, localModified: false, replacedImages: [],
+        restored: null,
         // We have just written GitHub's exact blob as the working copy and
         // adopted its sha as the baseline, so this is in sync by construction.
         // Without it the header went on saying "site has changed" after the
@@ -513,6 +508,7 @@ export function useEditor() {
     // baseline, but it does not have to — asserting that it does would be the
     // stored-flag mistake in a new place.
     const localModified = sha ? (await gitBlobSha(kept.text)) !== sha : false;
+    void db.delMeta('restored');
     setState((cur) => ({
       ...cur, ...opened, localModified, restored: null, replacedImages: [],
     }));
@@ -819,7 +815,10 @@ export function useEditor() {
     // copy from reporting itself as matching the live site tomorrow.
     const base = await db.getFile(s.source.path);
     await db.putFile({ path: s.source.path, text, sha: base?.sha ?? '' });
-    setState((cur) => ({
+        // Persisted: the amber state already survives a reload (it is derived from
+    // the bytes), but without this the app forgot *which* version it was showing.
+    void db.setMeta('restored', { sha: version.sha, short: version.short, when: version.when });
+setState((cur) => ({
       ...cur,
       localModified: true,
       replacedImages: [],
@@ -840,6 +839,7 @@ export function useEditor() {
     const text = await api.fileAtCommit(s.source, head.commitSha, s.source.path);
     // Head's own bytes, so this genuinely is the baseline again.
     await db.putFile({ path: s.source.path, text, sha: await gitBlobSha(text) });
+    void db.delMeta('restored');
     setState((cur) => ({
       ...cur, ...openBundle(text), changes: new Map(), restored: null,
       localModified: false, replacedImages: [],
@@ -855,6 +855,7 @@ export function useEditor() {
     // compares against the blob sha in GitHub's tree, so storing the commit
     // sha here made every later check report a site that had changed.
     const sha = await gitBlobSha(fileText);
+    void db.delMeta('restored');
     setState((s) => {
       if (s.source) void db.putFile({ path: s.source.path, text: fileText, sha });
       return {
@@ -908,12 +909,23 @@ export function useEditor() {
     await db.clearFiles();
     await db.delMeta('source');
     await db.clearToken();
+    // Everything below is about one site, and Change Site exists to move to
+    // another. These were added after disconnect was written and never joined
+    // it — so the previous site's sync verdict, restore, replaced images and,
+    // worst, `lastPush` carried over. That last one would have sent a brand-new
+    // site's first publish to Live, past the preview-first default, on the
+    // strength of a publish made to a different repository.
+    await db.delMeta('lastPush');
+    await db.delMeta('replacedImages');
+    await db.delMeta('restored');
     setState((s) => ({
       ...s,
-      token: null, source: null, files: [], activeFile: null,
+      token: null, source: null, activeFile: null,
       bundle: null, index: null, targets: null, assets: [], health: null,
       sync: { kind: 'idle' }, deploy: null,
       changes: new Map(), selection: { targetId: null, elementId: null },
+      remote: null, restored: null, replacedImages: [], localModified: false,
+      pushedThisSession: false, lastPush: null,
     }));
   }, []);
 

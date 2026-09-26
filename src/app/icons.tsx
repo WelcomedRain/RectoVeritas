@@ -17,25 +17,6 @@ function Icon({ size = 15, children }: { size?: number; children: React.ReactNod
   );
 }
 
-export const FileText = ({ size = 13 }) => (
-  <Icon size={size}>
-    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-    <path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8m8 4H8m8 4H8" />
-  </Icon>
-);
-
-export const Image = ({ size = 13 }) => (
-  <Icon size={size}>
-    <rect width="18" height="18" x="3" y="3" rx="2" />
-    <circle cx="9" cy="9" r="2" />
-    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-  </Icon>
-);
-
-export const ChevronDown = ({ size = 13 }) => (
-  <Icon size={size}><path d="m6 9 6 6 6-6" /></Icon>
-);
-
 export const Monitor = ({ size = 15 }) => (
   <Icon size={size}>
     <rect width="20" height="14" x="2" y="3" rx="2" />
