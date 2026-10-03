@@ -22,6 +22,7 @@ import { liveUrlFor, type DeployObservation } from '../core/deploy';
 import * as db from '../core/db';
 import { gitBlobSha } from '../core/blobSha';
 import { compareBundles, type Comparison } from '../core/compare';
+import { findSettings, withSetting, settingValue } from '../core/props';
 
 export type Mode = 'page' | 'split' | 'code';
 export type Tab = 'words' | 'pictures' | 'selection';
@@ -765,6 +766,56 @@ export function useEditor() {
     });
   }, []);
 
+  /**
+   * Change one page setting.
+   *
+   * Every setting in a block lives in one attribute, so they share one queued
+   * change: it starts from that change's own value when there is one, and
+   * edits to different settings accumulate instead of each reverting the last.
+   * Setting a value back to the published one drops the change entirely.
+   */
+  const setPageSetting = useCallback((blockId: string, key: string, value: unknown) => {
+    setState((s) => {
+      if (!s.source || !s.bundle) return s;
+      const block = findSettings(s.bundle.template).find((b) => b.id === blockId);
+      const setting = block?.settings.find((x) => x.key === key);
+      if (!block || !setting) return s;
+
+      const changes = new Map(s.changes);
+      const existing = changes.get(blockId);
+      const nextValue = withSetting(existing?.nextValue ?? block.raw, key, value);
+
+      if (nextValue === block.raw) {
+        changes.delete(blockId);
+        void db.delPatch(blockId);
+        return { ...s, error: null, changes };
+      }
+
+      const changed = block.settings
+        .filter((x) => JSON.stringify(settingValue(nextValue, x.key)) !== JSON.stringify(x.value))
+        .map((x) => x.label);
+      const change: PendingChange = {
+        targetId: blockId,
+        file: s.source.path,
+        label: changed.length === 1 ? `Page setting · ${changed[0]}` : 'Page settings',
+        tag: 'data-props',
+        kind: 'props',
+        liveValue: block.raw,
+        nextValue,
+        start: block.start,
+        end: block.end,
+      };
+      changes.set(blockId, change);
+      void db.putPatch({
+        ...change,
+        id: blockId,
+        createdAt: Date.now(),
+        baseFingerprint: db.fingerprint(s.bundle.template),
+      });
+      return { ...s, error: null, changes };
+    });
+  }, []);
+
   const undo = useCallback((targetId: string) => {
     setState((s) => {
       const changes = new Map(s.changes);
@@ -941,7 +992,7 @@ setState((cur) => ({
   return {
     state, online, manualOffline, setManualOffline,
     connect, checkRemote, observeRemote, applyRemote, describeDrift, dismissSync, editElementHtml, replaceImage, applyOverride,
-    edit, undo, select, commitPublished, disconnect, dropOrphans, setDeploy,
+    edit, undo, select, setPageSetting, commitPublished, disconnect, dropOrphans, setDeploy,
     loadHistory, restoreVersion, discardRestore, dropApplied, loadSetAside, restoreSetAside,
     valueOf, changeList, patch,
   };
@@ -969,7 +1020,7 @@ function reconcile(
     // target map — a code edit spans a whole element, a scoped override spans a
     // whole style attribute, and both would overlap every target inside them.
     // Their absence is not evidence of anything.
-    const selfDescribing = c.kind === 'html' || c.kind === 'style-attr';
+    const selfDescribing = c.kind === 'html' || c.kind === 'style-attr' || c.kind === 'props';
     if (!selfDescribing && !targets.byId.has(c.targetId)) orphaned++;
     const patch = c as Partial<db.StoredPatch>;
     if (patch.baseFingerprint && patch.baseFingerprint !== fp) stale = true;

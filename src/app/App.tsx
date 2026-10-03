@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor } from './store';
 import { PageView } from './PageView';
 import { CodeView } from './CodeView';
-import { WordsPanel, PicturesPanel, SelectionPanel } from './Panels';
+import { WordsPanel, PicturesPanel, SelectionPanel, type PageSettingsApi } from './Panels';
 import { StylePanel, ThemePanel } from './StylePanel';
 import { SourceDialog, ConnectDialog, PublishDialog, SyncDialog, HistoryDialog, DriftDialog } from './Dialogs';
-import { publish, type Step, type PublishResult } from '../core/publish';
+import { publish, editsFor, type Step, type PublishResult } from '../core/publish';
+import { serializeBundle } from '../core/bundle';
+import { findSettings, settingValue, placeholderKey } from '../core/props';
 import { verifyDeployment } from '../core/deploy';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import * as db from '../core/db';
-import { outerRange, type StringEntry } from '../core/htmlIndex';
+import { outerRange, applyEdits, indexTemplate, type StringEntry } from '../core/htmlIndex';
 import type { LiveEdit } from './preview';
 import { noteFor, summarise, type PreviewAck } from './previewable';
 import { statusLine, siteState, SITE_WORD } from './status';
@@ -404,6 +406,79 @@ export function App() {
       setTab((t) => (t === 'style' || t === 'theme' ? t : 'selection'));
     }
   }, [ed, assetForElement]);
+
+  /**
+   * The page the preview renders, with any page-setting changes already in it.
+   *
+   * A setting cannot be pushed into a running page: the runtime reads the
+   * settings block once, when it starts. So the preview is rebuilt from a copy
+   * of the page with the block rewritten — the approach measured to work by
+   * rendering variants through the real runtime. The index is rebuilt with it so
+   * the element ids the preview stamps agree with the page it is stamping.
+   *
+   * Debounced, because each rebuild reloads a 2 MB page, and typing a sentence
+   * should not do that once per letter.
+   */
+  const propsKey = ed.changeList
+    .filter((c) => c.kind === 'props')
+    .map((c) => `${c.targetId}=${c.nextValue}`)
+    .join('|');
+  const [settledPropsKey, setSettledPropsKey] = useState(propsKey);
+  useEffect(() => {
+    const t = setTimeout(() => setSettledPropsKey(propsKey), 450);
+    return () => clearTimeout(t);
+  }, [propsKey]);
+  const previewSource = useMemo(() => {
+    const idx0 = state.index;
+    const propsChanges = ed.changeList.filter((c) => c.kind === 'props');
+    if (!settledPropsKey || !propsChanges.length || !state.bundle || !state.targets) {
+      return { text: fileText, index: idx0 };
+    }
+    try {
+      const template = applyEdits(state.bundle.template, editsFor(propsChanges, state.targets.byId));
+      return { text: serializeBundle(state.bundle, { template }), index: indexTemplate(template) };
+    } catch {
+      return { text: fileText, index: idx0 };
+    }
+    // `changeList` is read for its props entries, which `settledPropsKey` names.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settledPropsKey, fileText, state.bundle, state.index, state.targets]);
+
+  /** The settings Claude Design exposes on this page, read from the published bytes. */
+  const settingBlocks = useMemo(
+    () => (state.bundle ? findSettings(state.bundle.template) : []),
+    [state.bundle],
+  );
+  const pageSettings: PageSettingsApi = useMemo(() => {
+    const published = (blockId: string, key: string) =>
+      settingBlocks.find((b) => b.id === blockId)?.settings.find((x) => x.key === key)?.value;
+    return {
+      blocks: settingBlocks,
+      valueOf: (blockId, key) => {
+        const c = state.changes.get(blockId);
+        return c ? settingValue(c.nextValue, key) : published(blockId, key);
+      },
+      changed: (blockId, key) => {
+        const c = state.changes.get(blockId);
+        return !!c && JSON.stringify(settingValue(c.nextValue, key)) !== JSON.stringify(published(blockId, key));
+      },
+      set: ed.setPageSetting,
+      // Bound by name: the placeholder's name is the setting's key. True of this
+      // page, where renderVals passes each setting straight through; a value the
+      // component computes for itself, such as {{ year }}, has no setting and
+      // stays read-only.
+      bindingFor: (entry) => {
+        if (!entry.computed) return null;
+        const key = placeholderKey(entry.value);
+        if (!key) return null;
+        for (const b of settingBlocks) {
+          const st = b.settings.find((x) => x.key === key && x.editor !== 'boolean');
+          if (st) return { blockId: b.id, setting: st };
+        }
+        return null;
+      },
+    };
+  }, [settingBlocks, state.changes, ed.setPageSetting]);
 
   const liveEdits = useMemo(
     () => ed.changeList.flatMap((c): LiveEdit[] => {
@@ -810,8 +885,8 @@ export function App() {
             {mode !== 'code' && idx && (
               <PageView
                 file={state.activeFile ?? ''}
-                fileText={fileText}
-                index={idx}
+                fileText={previewSource.text}
+                index={previewSource.index ?? idx}
                 onSelectElement={onSelectElement}
                 selectedElementId={state.selection.elementId}
                 liveEdits={liveEdits}
@@ -864,6 +939,7 @@ export function App() {
 
           {tab === 'words' && idx && (
             <WordsPanel
+              pageSettings={pageSettings}
               index={idx}
               valueOf={ed.valueOf}
               onEdit={ed.edit}
@@ -949,6 +1025,7 @@ export function App() {
 
           {tab === 'selection' && idx && (
             <SelectionPanel
+              pageSettings={pageSettings}
               entry={selectedEntry}
               change={selectedEntry ? state.changes.get(selectedEntry.id) : undefined}
               valueOf={ed.valueOf}

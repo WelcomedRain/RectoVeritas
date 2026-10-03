@@ -10,7 +10,12 @@
 import { encodeAttr, encodeText, tokenize, type TemplateIndex } from './htmlIndex';
 import { elementHoverStyle, elementStyle, findRules, findThemeTokens, type CssRule, type StyleDecl, type ThemeToken } from './css';
 
-export type TargetKind = 'text' | 'attr' | 'css-inline' | 'css-hover' | 'css-theme' | 'css-rule' | 'style-attr' | 'html';
+/**
+ * `props` is a page setting: one `default` inside the settings block Claude
+ * Design puts on the component script. Self-describing like `html` and
+ * `style-attr` — it carries its own range, the whole attribute value.
+ */
+export type TargetKind = 'text' | 'attr' | 'css-inline' | 'css-hover' | 'css-theme' | 'css-rule' | 'style-attr' | 'html' | 'props';
 
 export interface EditTarget {
   id: string;
@@ -78,6 +83,10 @@ export function encodeFor(kind: TargetKind, value: string): string {
       // Already markup. Entity-encoding it would turn the user's tags into
       // visible text. The bundle codec escapes it for the script block;
       // structural safety is validateFragment's job, not this function's.
+      return value;
+    case 'props':
+      // Encoded for its attribute by `withSetting` when the change is made,
+      // and `editsFor` writes it verbatim. Encoding again here would double it.
       return value;
   }
 }

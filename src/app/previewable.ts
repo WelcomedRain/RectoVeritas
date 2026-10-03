@@ -83,6 +83,11 @@ export function noteFor(
   const never = NEVER_PUSHED[change.kind];
   if (never) return { ...base, state: 'hold', ...never };
 
+  // Not pushed through the bridge at all: the preview is rebuilt from a copy of
+  // the page with the setting already written in, so the page on screen is the
+  // setting applied. There is no acknowledgement to wait for.
+  if (change.kind === 'props') return { ...base, ...OK };
+
   if (!ack) return { ...base, state: 'waiting', why: '', howToSee: '' };
 
   if (ack.result === 'shown') return { ...base, ...OK };

@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from 'react';
 import type { AssetInfo, Bundle } from '../core/bundle';
+import type { SettingsBlock, PageSetting } from '../core/props';
 import { assetDataUrl } from '../core/bundle';
 import { imageSizeFromBase64, formatSize } from '../core/imageMeta';
 import type { FitReport } from '../core/fit';
@@ -31,13 +32,32 @@ export function autosize(el: HTMLTextAreaElement | null) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
+/* --------------------------- Page settings --------------------------- */
+
+/**
+ * What the panels need to treat a page setting as an ordinary field.
+ *
+ * "Available for new work" is written in the markup as `{{ availabilityText }}`
+ * and filled from a setting, so the string a panel finds there is the
+ * placeholder, not the words. A panel holding one of those asks `bindingFor`
+ * which setting fills it, and edits that instead - the field shows and changes
+ * what the visitor actually reads.
+ */
+export interface PageSettingsApi {
+  blocks: SettingsBlock[];
+  valueOf: (blockId: string, key: string) => unknown;
+  changed: (blockId: string, key: string) => boolean;
+  set: (blockId: string, key: string, value: unknown) => void;
+  bindingFor: (entry: StringEntry) => { blockId: string; setting: PageSetting } | null;
+}
+
 /* ------------------------------- Words ------------------------------- */
 
 /** Height of one section heading. The stacking offset is a multiple of it. */
 const BAND_HEAD_H = 30;
 
 export function WordsPanel({
-  index, valueOf, onEdit, onFocus, changes, selectedId, onSelectElement,
+  index, valueOf, onEdit, onFocus, changes, selectedId, onSelectElement, pageSettings,
 }: {
   index: TemplateIndex;
   valueOf: (s: StringEntry) => string;
@@ -46,6 +66,7 @@ export function WordsPanel({
   changes: Map<string, PendingChange>;
   selectedId: string | null;
   onSelectElement: (elementId: string) => void;
+  pageSettings: PageSettingsApi;
 }) {
   // Page furniture and page content are different jobs, and this list used to
   // run them together in document order — which put fourteen invisible
@@ -64,7 +85,46 @@ export function WordsPanel({
   /** Only what the reader has explicitly opened or shut; the rest take defaults. */
   const [openBands, setOpenBands] = useState<Record<string, boolean>>({});
 
-  const field = (s: StringEntry) => (
+  const settingField = (blockId: string, st: PageSetting, key: string) => {
+    const v = pageSettings.valueOf(blockId, st.key);
+    const edited = pageSettings.changed(blockId, st.key);
+    if (st.editor === 'boolean') {
+      return (
+        <label className="field setting-switch" key={key}>
+          <input
+            type="checkbox"
+            checked={v === true}
+            onChange={(e) => pageSettings.set(blockId, st.key, e.target.checked)}
+          />
+          <span className={`label ${edited ? 'edited-label' : ''}`}>{st.label}</span>
+        </label>
+      );
+    }
+    return (
+      <div className="field" key={key}>
+        <div className="field-head">
+          <span className="label">{st.label}</span>
+          <span className="tag">page setting</span>
+        </div>
+        <textarea
+          className={`input ${edited ? 'edited' : ''}`}
+          rows={1}
+          ref={autosize}
+          onInput={(e) => autosize(e.currentTarget)}
+          value={typeof v === 'string' ? v : String(v ?? '')}
+          onChange={(e) => pageSettings.set(blockId, st.key, e.target.value)}
+        />
+      </div>
+    );
+  };
+
+  const field = (s: StringEntry) => {
+    const bound = pageSettings.bindingFor(s);
+    if (bound) return settingField(bound.blockId, bound.setting, s.id);
+    return plainField(s);
+  };
+
+  const plainField = (s: StringEntry) => (
     <div className="field" key={s.id}>
       <div className="field-head">
         <span className="label">{s.label}</span>
@@ -105,9 +165,10 @@ export function WordsPanel({
    * exactly like the others and behave nothing like them. Closed, it is one
    * line instead of a false start.
    */
+  const settings = pageSettings.blocks.flatMap((b) => b.settings.map((st) => ({ b, st })));
   const bands: {
     key: string; label: string; note?: string; entries: StringEntry[];
-    shut?: boolean; section?: string;
+    shut?: boolean; section?: string; settings?: boolean;
   }[] = [
     ...(seo.length ? [{
       key: '__info',
@@ -117,6 +178,16 @@ export function WordsPanel({
         + 'to lay the page out.',
       entries: seo,
       shut: true,
+    }] : []),
+    // Beside Metadata rather than in document order: like the head, these are
+    // page furniture rather than copy, and the settings block sits at the very
+    // end of the page, after everything it controls.
+    ...(settings.length ? [{
+      key: '__settings',
+      label: 'Page settings',
+      entries: [],
+      shut: true,
+      settings: true,
     }] : []),
     ...groups.map((g, i) => ({
       key: g.section.id || `loose-${i}`,
@@ -132,6 +203,7 @@ export function WordsPanel({
         // A band holding the selection opens itself. Otherwise clicking a
         // thing in the page would select a box nobody can see.
         const holdsSelection = selectedId != null && b.entries.some((e) => e.id === selectedId);
+        const count = b.settings ? settings.length : b.entries.length;
         const open = openBands[b.key] ?? (!b.shut || holdsSelection);
         return (
           <Fragment key={b.key}>
@@ -147,11 +219,12 @@ export function WordsPanel({
             >
               <span className="band-mark" aria-hidden>{open ? '−' : '+'}</span>
               <span className="band-name" title={b.label}>{b.label}</span>
-              <span className="band-count">{b.entries.length}</span>
+              <span className="band-count">{count}</span>
             </button>
             <div className={`band ${i % 2 ? 'alt' : ''} ${open ? '' : 'shut'}`}>
             {open && b.note && <p className="band-note">{b.note}</p>}
-            {open && (b.section
+            {open && b.settings && settings.map(({ b: blk, st }) => settingField(blk.id, st, `${blk.id}:${st.key}`))}
+            {open && !b.settings && (b.section
               ? clusterByOwner(index, b.entries, b.section).map((c, ci) => (
                 c.ownerId === null
                   ? c.entries.map(field)
@@ -381,8 +454,9 @@ export function SelectionPanel({
   element, decls, hoverDecls, rules, targetsById, tokens, changes, hoverHeld, onHoldHover,
   onScopeToElement,
   elementSource, elementPending, onEditHtml, onRevertHtml,
-  ancestry, block, onSelectElement,
+  ancestry, block, onSelectElement, pageSettings,
 }: {
+  pageSettings: PageSettingsApi;
   entry: StringEntry | null;
   change: PendingChange | undefined;
   valueOf: ((s: StringEntry) => string) & ((t: EditTarget) => string);
@@ -491,6 +565,11 @@ export function SelectionPanel({
       </div>
     );
   }
+  // A placeholder such as {{ availabilityText }} is edited through the setting
+  // that fills it, so clicking those words in the page lands on a field that
+  // shows and changes them, not on a disabled box holding the placeholder.
+  const bound = pageSettings.bindingFor(entry);
+  const boundEdited = bound ? pageSettings.changed(bound.blockId, bound.setting.key) : false;
   return (
     <div className="panel panel-select">
       {trail}
@@ -506,27 +585,55 @@ export function SelectionPanel({
         </tbody>
       </table>
 
-      <textarea
-        className={`input ${change ? 'edited' : ''}`}
-        rows={1}
-        ref={autosize}
-        onInput={(e) => autosize(e.currentTarget)}
-        value={valueOf(entry)}
-        disabled={entry.computed}
-        onChange={(e) => onEdit(entry.id, e.target.value)}
-      />
-
-      {change && (
-        <div className="stack" style={{ gap: 6 }}>
-          <div className="label">Live on the site right now</div>
-          <div className="was">{change.liveValue}</div>
-        </div>
+      {bound ? (
+        <>
+          <textarea
+            className={`input ${boundEdited ? 'edited' : ''}`}
+            rows={1}
+            ref={autosize}
+            onInput={(e) => autosize(e.currentTarget)}
+            value={String(pageSettings.valueOf(bound.blockId, bound.setting.key) ?? '')}
+            onChange={(e) => pageSettings.set(bound.blockId, bound.setting.key, e.target.value)}
+          />
+          {boundEdited && (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="label">Live on the site right now</div>
+              <div className="was">{String(bound.setting.value ?? '')}</div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <textarea
+            className={`input ${change ? 'edited' : ''}`}
+            rows={1}
+            ref={autosize}
+            onInput={(e) => autosize(e.currentTarget)}
+            value={valueOf(entry)}
+            disabled={entry.computed}
+            onChange={(e) => onEdit(entry.id, e.target.value)}
+          />
+          {change && (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="label">Live on the site right now</div>
+              <div className="was">{change.liveValue}</div>
+            </div>
+          )}
+        </>
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn" onClick={onShowCode}>Show me the code</button>
         {stepOut}
-        {change && <button className="btn" onClick={() => onUndo(entry.id)}>Undo</button>}
+        {change && !bound && <button className="btn" onClick={() => onUndo(entry.id)}>Undo</button>}
+        {bound && boundEdited && (
+          <button
+            className="btn"
+            onClick={() => pageSettings.set(bound.blockId, bound.setting.key, bound.setting.value)}
+          >
+            Undo
+          </button>
+        )}
       </div>
 
       <div style={{ borderTop: '2px solid var(--color-divider)', paddingTop: 12 }} className="stack">

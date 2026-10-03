@@ -5,6 +5,7 @@ import { canRestore, type Version, type SetAside } from '../core/history';
 import type { SyncState } from './store';
 import { syncMessage } from './status';
 import type { Comparison } from '../core/compare';
+import { describeSettingChanges } from '../core/props';
 import type { SiteState } from './status';
 
 /** Mirrors the store's retention. Shown so the promise here is the real one. */
@@ -353,8 +354,23 @@ export function PublishDialog({
                 </div>
                 {/* Labelled, like the out-of-sync rows. Two values with nothing
                     naming them left the reader to remember which edit this was. */}
-                <div className="from"><span className="side">Now</span>{c.liveValue || '(empty)'}</div>
-                <div className="to"><span className="side">Will be</span>{c.nextValue || '(empty)'}</div>
+                {/* A page setting is stored as the whole encoded settings block,
+                    which is what gets written — but shown as is, the review was a
+                    wall of &quot; with the one value that moved buried in it. */}
+                {c.kind === 'props'
+                  ? describeSettingChanges(c.liveValue, c.nextValue).map((d) => (
+                    <div className="stack" style={{ gap: 4 }} key={d.label}>
+                      <div className="label" style={{ textTransform: 'none', letterSpacing: 0 }}>{d.label}</div>
+                      <div className="from"><span className="side">Now</span>{d.from || '(empty)'}</div>
+                      <div className="to"><span className="side">Will be</span>{d.to || '(empty)'}</div>
+                    </div>
+                  ))
+                  : (
+                    <>
+                      <div className="from"><span className="side">Now</span>{c.liveValue || '(empty)'}</div>
+                      <div className="to"><span className="side">Will be</span>{c.nextValue || '(empty)'}</div>
+                    </>
+                  )}
               </div>
             ))}
           </div>

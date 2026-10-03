@@ -138,6 +138,11 @@ button:disabled { cursor: default; opacity: 0.4; }
 }
 .input:focus { outline: none; border-color: var(--color-accent); }
 .input.edited { background: var(--color-accent-100); }
+/* A page setting that is a switch. A checkbox has no box to tint, so an edited
+   one marks its label the way an edited field marks its background. */
+.setting-switch { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+.setting-switch input { margin: 0; accent-color: var(--color-accent); }
+.setting-switch .label.edited-label { background: var(--color-accent-100); padding: 1px 4px; }
 .input:disabled { background: var(--color-neutral-200); color: var(--color-neutral-700); }
 
 /* A textarea inside .panel is a column flex item, and flex items are allowed to

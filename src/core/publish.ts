@@ -59,10 +59,12 @@ export interface PendingChange {
 /** Turn pending changes into byte-range edits against the template. */
 export function editsFor(changes: PendingChange[], targets: Map<string, EditTarget>): Edit[] {
   return changes.map((c) => {
-    if (c.kind === 'html' || c.kind === 'style-attr') {
+    if (c.kind === 'html' || c.kind === 'style-attr' || c.kind === 'props') {
       if (c.start == null || c.end == null) {
         throw new Error(`Cannot publish "${c.label}": its position in the page was lost.`);
       }
+      // Already encoded for its attribute when the change was made.
+      if (c.kind === 'props') return { start: c.start, end: c.end, replacement: c.nextValue };
       if (c.kind === 'html') {
         return { start: c.start, end: c.end, replacement: encodeFor('html', c.nextValue) };
       }
